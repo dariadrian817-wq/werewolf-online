@@ -12,7 +12,7 @@
         <p class="text-red-300 text-sm mt-2">Real-time multiplayer</p>
     </div>
 
-    <!-- Name input -->
+    <!-- Name input (shared) -->
     <div>
         <label class="text-xs text-red-300 uppercase tracking-widest">Your Name</label>
         <input id="name-input" type="text" maxlength="20" placeholder="e.g. Alice"
@@ -57,6 +57,7 @@
 <script>
 const socket = io();
 
+// Persistent player ID
 function getPlayerId() {
     let id = localStorage.getItem('wolf_player_id');
     if (!id) {
@@ -75,7 +76,6 @@ function showError(msg) {
 function getName() {
     const n = document.getElementById('name-input').value.trim();
     if (!n) { showError('Enter your name'); return null; }
-    localStorage.setItem('wolf_player_name', n);
     return n;
 }
 

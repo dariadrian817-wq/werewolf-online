@@ -282,16 +282,11 @@
             background: rgba(74, 0, 0, 0.95);
             box-shadow: 0 0 20px rgba(220, 38, 38, 0.7);
         }
-        /* ═══════════════════════════════════════
-   EXTRA BLOOD EFFECTS
-   ═══════════════════════════════════════ */
-
-/* ── Blood drip from top edge ── */
         .blood-drips::after {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
     right: 0;
     height: 250px;
     pointer-events: none;
@@ -328,12 +323,12 @@
     50% { transform: translate(-2px, -2px); }
     60% { transform: translate(2px, 2px); }
 }
-.screen-shake {
+        .screen-shake {
     animation: screen-shake 0.5s ease-in-out;
 }
 
 /* ── Blood splatter (JS-triggered) ── */
-.splatter-overlay {
+        .splatter-overlay {
     position: fixed;
     inset: 0;
     pointer-events: none;
@@ -358,12 +353,12 @@
     80% { opacity: 0.85; transform: scale(1); }
     100% { opacity: 0; transform: scale(0.95); }
 }
-.splatter-overlay.active {
+        .splatter-overlay.active {
     animation: splatter-in 2s ease-out forwards;
 }
 
 /* ── Claw marks ── */
-.claw-marks {
+        .claw-marks {
     position: fixed;
     top: 0;
     right: 0;
@@ -373,8 +368,8 @@
     z-index: 3;
     opacity: 0.35;
 }
-.claw-marks::before,
-.claw-marks::after {
+        .claw-marks::before,
+        .claw-marks::after {
     content: '';
     position: absolute;
     width: 4px;
@@ -386,17 +381,17 @@
     filter: blur(0.5px);
     box-shadow: 0 0 10px rgba(220, 38, 38, 0.6);
 }
-.claw-marks::before {
+        .claw-marks::before {
     left: 30px;
 }
-.claw-marks::after {
+        .claw-marks::after {
     left: 70px;
     transform: rotate(-10deg);
     opacity: 0.85;
 }
 
 /* ── Bloody text hover ── */
-.bloody-text {
+        .bloody-text {
     color: #dc2626;
     text-shadow: 0 0 15px rgba(220, 38, 38, 0.8), 0 2px 4px rgba(0,0,0,0.9);
     animation: blood-pulse-text 2s ease-in-out infinite;
@@ -407,11 +402,11 @@
 }
 
 /* ── Dripping blood on cards ── */
-.bloody-card {
+        .bloody-card {
     position: relative;
     overflow: hidden;
 }
-.bloody-card::before {
+        .bloody-card::before {
     content: '';
     position: absolute;
     top: 0;
@@ -426,6 +421,7 @@
     pointer-events: none;
     opacity: 0.9;
 }
+
     </style>
 
     {% block head %}{% endblock %}
