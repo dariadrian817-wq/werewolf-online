@@ -89,8 +89,9 @@ def offline_done():
 # ---------- ROUTES: ONLINE (stub) ----------
 
 @app.route('/online')
+@app.route('/online/join')       # ← alias, para hindi mag-404
+@app.route('/online/join/')
 def online_index():
-    """Entry point — create or join."""
     return render_template('online_join.html')
 
 @app.route('/online/room/<code>')
