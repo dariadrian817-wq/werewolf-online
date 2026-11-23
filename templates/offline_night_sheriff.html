@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Sheriff Action{% endblock %}
+{% block body_class %}theme-night{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="text-center">
+        <div class="text-6xl">⭐</div>
+        <h2 class="text-3xl font-bold text-yellow-400">Sheriff</h2>
+        <p class="text-gray-400 mt-2">{{ sheriff_name }}, choose someone to eliminate</p>
+        <p class="text-xs text-red-400 mt-1">⚠️ Choose wisely — might hit a villager.</p>
+    </div>
+
+    <form method="POST" class="space-y-2">
+        {% for t in targets %}
+        <button type="submit" name="target" value="{{ t.index }}"
+                class="w-full bg-gray-800 hover:bg-red-900 border border-gray-700 hover:border-red-600 rounded-lg py-3 text-left px-5 transition">
+            {{ t.name }}
+        </button>
+        {% endfor %}
+        <button type="submit" name="target" value="skip"
+                class="w-full bg-gray-700 hover:bg-gray-600 rounded-lg py-3 text-sm mt-2">
+            🕊️ Skip — don't kill tonight
+        </button>
+    </form>
+</div>
+{% endblock %}

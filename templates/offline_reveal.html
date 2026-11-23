@@ -1,0 +1,235 @@
+{% extends 'base.html' %}
+{% block title %}Reveal — {{ name }}{% endblock %}
+
+{% block head %}
+<style>
+    .no-select {
+        -webkit-user-select: none; user-select: none;
+        -webkit-touch-callout: none;
+    }
+    #role-content { display: none; }
+    #hidden-screen { display: none; }
+
+    /* Big pulse animation for countdown urgency */
+    @keyframes pulse-warning {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+    }
+    .countdown-urgent {
+        animation: pulse-warning 1s infinite;
+        color: #fbbf24;
+    }
+    .countdown-critical {
+        animation: pulse-warning 0.5s infinite;
+        color: #ef4444;
+    }
+    #role-card {
+    box-shadow: 0 0 40px rgba(139, 0, 0, 0.5), 0 20px 60px rgba(0, 0, 0, 0.8);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="text-center space-y-6 no-select">
+
+    <!-- ═══ PHASE 1: Pass screen ═══ -->
+    <div id="pass-screen" class="space-y-8 text-center">
+    <div class="text-8xl animate-pulse">🛡️</div>
+
+    <div>
+        <p class="text-sm tracking-[0.4em] uppercase text-gray-400 mb-3">Pass to</p>
+        <h2 class="text-6xl font-black font-medieval text-transparent bg-clip-text
+                   bg-gradient-to-r from-yellow-300 via-amber-400 to-orange-500
+                   drop-shadow-2xl">
+            {{ name }}
+        </h2>
+    </div>
+
+    <div class="bg-yellow-900/30 border border-yellow-700/50 rounded-xl p-3">
+        <p class="text-xs text-yellow-200">
+            🔒 Make sure no one else can see the screen
+        </p>
+    </div>
+
+    <button onclick="startReveal()"
+            class="w-full bg-gradient-to-r from-emerald-600 to-emerald-500
+                   hover:from-emerald-500 hover:to-emerald-400
+                   rounded-2xl py-6 font-black text-xl shadow-2xl transition-all hover:scale-[1.02]">
+        I'm {{ name }} — Reveal Role
+    </button>
+
+    <p class="text-xs text-gray-500">Player {{ idx+1 }} of {{ total }}</p>
+</div>
+</a>   
+    </div>
+
+    <!-- ═══ PHASE 2: Role card (visible with countdown) ═══ -->
+    <div id="role-content" class="space-y-5">
+
+    <div id="role-card" class="relative rounded-3xl p-8 text-center overflow-hidden
+         border-2 border-opacity-60 shadow-2xl role-card-animate">
+
+        <div class="absolute top-4 left-4 text-2xl opacity-60 float-1">✨</div>
+        <div class="absolute top-4 right-4 text-2xl opacity-60 float-2">✨</div>
+
+        <div class="text-8xl mb-4 relative z-10 drop-shadow-2xl" id="role-emoji">🐺</div>
+
+        <p class="text-xs tracking-[0.3em] uppercase text-white/70 mb-2 relative z-10">
+            Your Role
+        </p>
+        <h2 class="text-5xl font-black capitalize relative z-10 font-medieval tracking-wide"
+            id="role-name">{{ role }}</h2>
+
+        <p class="text-sm text-white/80 italic mt-4 relative z-10" id="role-flavor"></p>
+    </div>
+
+    <div class="space-y-1 text-center">
+        <p class="text-yellow-300 text-xs font-semibold tracking-widest uppercase">
+            ⚠️ Auto-hides in
+        </p>
+        <p id="countdown" class="text-6xl font-black text-yellow-300 font-medieval drop-shadow-lg">8</p>
+    </div>
+
+    <button onclick="hideNow()"
+            class="w-full bg-white/10 hover:bg-white/20 backdrop-blur border-2 border-white/30
+                   rounded-2xl py-4 font-bold text-lg transition-all">
+        ✓ Got it — Hide Now
+    </button>
+</div>
+
+    <!-- ═══ PHASE 3: Hidden screen ═══ -->
+    <div id="hidden-screen" class="space-y-6">
+        <div class="text-6xl">🔒</div>
+        <p class="text-2xl font-bold">Role hidden</p>
+        <p class="text-gray-400">Pass the device to the next player</p>
+        <a href="/offline/reveal/{{ idx + 1 }}"
+           class="block w-full bg-emerald-600 hover:bg-emerald-500 rounded-xl py-5 font-bold text-lg">
+            Next Player →
+        </a>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const ROLE_DATA = {
+    'werewolf': {
+        emoji: '🐺',
+        flavor: 'Hunt by night. Deceive by day.',
+        gradient: 'from-red-900 via-red-700 to-black',
+        border: 'border-red-500',
+        nameColor: 'text-red-300'
+    },
+    'seer': {
+        emoji: '🔮',
+        flavor: 'You see what others cannot.',
+        gradient: 'from-indigo-900 via-purple-700 to-black',
+        border: 'border-purple-400',
+        nameColor: 'text-purple-200'
+    },
+    'doctor': {
+        emoji: '💊',
+        flavor: 'One life spared each night.',
+        gradient: 'from-emerald-900 via-emerald-700 to-black',
+        border: 'border-emerald-400',
+        nameColor: 'text-emerald-200'
+    },
+    'witch': {
+        emoji: '🧙‍♀️',
+        flavor: 'Two potions. One life. One death.',
+        gradient: 'from-purple-900 via-purple-700 to-black',
+        border: 'border-purple-400',
+        nameColor: 'text-purple-200'
+    },
+    'sheriff': {
+        emoji: '⭐',
+        flavor: 'The law has a gun. Use it wisely.',
+        gradient: 'from-yellow-900 via-amber-700 to-black',
+        border: 'border-yellow-400',
+        nameColor: 'text-yellow-200'
+    },
+    'villager': {
+        emoji: '👩‍🌾',
+        flavor: 'Trust your instinct. Find the wolf.',
+        gradient: 'from-amber-900 via-amber-700 to-black',
+        border: 'border-amber-400',
+        nameColor: 'text-amber-200'
+    }
+};
+
+const roleName = "{{ role }}";
+const data = ROLE_DATA[roleName] || ROLE_DATA.villager;
+
+document.getElementById('role-emoji').textContent = data.emoji;
+document.getElementById('role-flavor').textContent = data.flavor;
+
+const card = document.getElementById('role-card');
+card.className = card.className
+    .replace('role-card-animate', '')
+    + ` bg-gradient-to-br ${data.gradient} ${data.border}`;
+
+document.getElementById('role-name').className += ' ' + data.nameColor;
+
+    const passScreen   = document.getElementById('pass-screen');
+    const roleContent  = document.getElementById('role-content');
+    const hiddenScreen = document.getElementById('hidden-screen');
+    const countdownEl  = document.getElementById('countdown');
+
+    const REVEAL_SECONDS = 8;   // ← palitan kung gusto mo mas mahaba
+    let countdownValue = REVEAL_SECONDS;
+    let countdownInterval = null;
+
+    // ── Step 1: Player taps "Show My Role" ──
+    function startReveal() {
+        passScreen.style.display = 'none';
+        roleContent.style.display = 'block';
+        startCountdown();
+    }
+
+    // ── Step 2: Countdown ticks down ──
+    function startCountdown() {
+        countdownValue = REVEAL_SECONDS;
+        countdownEl.textContent = countdownValue;
+        countdownEl.className = 'text-5xl font-bold text-yellow-400';
+        clearInterval(countdownInterval);
+
+        countdownInterval = setInterval(() => {
+            countdownValue--;
+            countdownEl.textContent = countdownValue;
+
+            // Visual urgency changes
+            if (countdownValue <= 3) {
+                countdownEl.className = 'text-5xl font-bold countdown-critical';
+            } else if (countdownValue <= 5) {
+                countdownEl.className = 'text-5xl font-bold countdown-urgent';
+            }
+
+            // Auto-hide when 0
+            if (countdownValue <= 0) {
+                clearInterval(countdownInterval);
+                hideRole();
+            }
+        }, 1000);
+    }
+
+    // ── Step 3a: Player taps "Got it" (early hide) ──
+    function hideNow() {
+        clearInterval(countdownInterval);
+        hideRole();
+    }
+
+    // ── Step 3b: Role hidden (auto or manual) ──
+    function hideRole() {
+        roleContent.style.display = 'none';
+        hiddenScreen.style.display = 'block';
+    }
+
+    // ── Prevent back button ──
+    history.pushState(null, '', location.href);
+    window.onpopstate = () => history.pushState(null, '', location.href);
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => clearInterval(countdownInterval));
+</script>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Choose Mode — Werewolf{% endblock %}
+
+{% block content %}
+<div class="text-center space-y-8">
+    <h1 class="text-6xl font-bold font-medieval text-transparent bg-clip-text
+           bg-gradient-to-b from-red-400 via-red-600 to-red-900
+           drop-shadow-2xl" style="filter: drop-shadow(0 0 30px rgba(220,38,38,0.6));">
+    🐺 Werewolf
+</h1>
+<p class="text-red-300 font-medieval tracking-[0.3em] text-sm uppercase mt-2">
+    A Game of Deduction
+</p>
+    <div class="space-y-4">
+        <a href="/online/join"
+           class="block w-full bg-indigo-600 hover:bg-indigo-500 rounded-lg py-4 font-semibold text-lg transition">
+            🌐 Play Online
+        </a>
+        <a href="/offline/setup"
+           class="block w-full bg-emerald-600 hover:bg-emerald-500 rounded-lg py-4 font-semibold text-lg transition">
+            📱 Play Offline (Pass-and-Play)
+        </a>
+        <a href="/rules"
+   class="block w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg py-3 text-sm text-gray-300 transition">
+    📖 How to Play
+        </a>
+    </div>
+
+    <p class="text-xs text-gray-500 pt-8">
+        No internet? Offline mode works on one shared device.
+    </p>
+</div>
+{% endblock %}

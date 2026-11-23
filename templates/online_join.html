@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}Join Online — Werewolf{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="text-center">
+        <h2 class="text-3xl font-bold">🌐 Online Mode</h2>
+        <p class="text-gray-400 mt-2">Create or join a room</p>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-900/50 border border-red-700 rounded-lg p-3 text-red-200 text-sm">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/online/create">
+        <button type="submit"
+                class="w-full bg-indigo-600 hover:bg-indigo-500 rounded-lg py-4 font-semibold text-lg">
+            + Create Room
+        </button>
+    </form>
+
+    <div class="text-center text-gray-500 text-sm">— or —</div>
+
+    <form method="POST" action="/online/join" class="space-y-3">
+        <input type="text" name="code" placeholder="Enter 6-letter code"
+               maxlength="6" style="text-transform: uppercase;"
+               class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-center text-2xl tracking-widest focus:outline-none focus:border-indigo-500">
+        <button type="submit"
+                class="w-full bg-gray-700 hover:bg-gray-600 rounded-lg py-3 font-semibold">
+            Join Room
+        </button>
+    </form>
+
+    <a href="/" class="block text-center text-sm text-gray-500 hover:text-gray-300">← Back to menu</a>
+</div>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Night {{ round }}{% endblock %}
+{% block body_class %}theme-night{% endblock %}
+
+{% block content %}
+<div class="text-center space-y-6">
+
+    <div class="text-6xl">🌙</div>
+    <h2 class="text-2xl font-bold font-medieval text-gray-400">
+        Night {{ round }}
+    </h2>
+
+    <!-- Role announcement — no names, no "pass to" -->
+    <div class="bg-gray-800 border-2 border-indigo-500 rounded-2xl py-8 px-6">
+        <p class="text-4xl font-black capitalize text-indigo-300">
+            {% if role == 'werewolf' %}🐺 Werewolves
+            {% elif role == 'sheriff' %}⭐ Sheriff
+            {% elif role == 'witch' %}🧙‍♀️ Witch
+            {% elif role == 'doctor' %}💊 Doctor
+            {% elif role == 'seer' %}🔮 Seer
+            {% endif %}
+        </p>
+        <p class="text-lg text-gray-400 mt-3" id="status-text">
+            Tap below to begin
+        </p>
+    </div>
+
+    <button id="start-btn" onclick="runNightAudio()"
+            class="w-full bg-indigo-600 hover:bg-indigo-500 rounded-xl py-5 font-bold text-lg">
+        🔊 Tap to Begin Night
+    </button>
+
+    <!-- Hidden link, revealed after audio finishes -->
+    <a id="continue-link" href="/offline/night/{{ role }}"
+       class="hidden w-full bg-emerald-600 hover:bg-emerald-500 rounded-xl py-5 font-bold text-lg">
+        Continue as {{ role|capitalize }} →
+    </a>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const role = "{{ role }}";
+const roleVoice = {
+    'werewolf': 'Werewolf' ,
+    'sheriff': 'Sheriff',
+    'witch': 'Witch',
+    'doctor': 'Doctor',
+    'seer': 'Seer'
+};
+
+const urlParams = new URLSearchParams(window.location.search);
+const autoStart = urlParams.get('next') === '1';
+
+if (autoStart) {
+    document.addEventListener('DOMContentLoaded', runNightAudio);
+}
+
+async function runNightAudio() {
+    const btn = document.getElementById('start-btn');
+    const link = document.getElementById('continue-link');
+    const status = document.getElementById('status-text');
+
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+
+    status.textContent = 'Everyone close your eyes...';
+    await speak("Night falls. Everyone, close your eyes.");
+    await sleep(1200);
+
+    status.textContent = `Only the ${roleVoice[role]}, open your eyes...`;
+    await speak(`Only the ${roleVoice[role]}, open your eyes.`);
+    await sleep(600);
+
+    status.textContent = `${roleVoice[role]}, tap below to continue.`;
+    await speak(`${roleVoice[role]}, tap the button below to continue.`);
+
+    if (btn) btn.classList.add('hidden');
+    link.classList.remove('hidden');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+{% endblock %}

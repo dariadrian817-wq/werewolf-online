@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}All Roles Revealed{% endblock %}
+
+{% block content %}
+<div class="text-center space-y-6">
+    <div class="text-6xl">✅</div>
+    <h2 class="text-3xl font-bold">All Roles Revealed</h2>
+    <p class="text-gray-400">Everyone has seen their role.</p>
+
+    <div class="bg-gray-800 rounded-lg p-4 text-left text-sm space-y-1">
+        <p class="font-semibold mb-2 text-gray-300">Role Distribution:</p>
+        {% for role, n in counts.items() %}
+        <p class="text-gray-400 capitalize">{{ role }}: {{ n }}</p>
+        {% endfor %}
+    </div>
+
+    <form method="POST" action="/offline/start">
+    <button type="submit"
+            class="w-full bg-emerald-600 hover:bg-emerald-500 rounded-xl py-5 font-bold text-lg">
+        🎮 Start Game →
+    </button>
+</form>
+<a href="/" class="block text-center text-sm text-gray-500 hover:text-gray-300 mt-2">← Back to Home</a>
+   
+</div>
+{% endblock %}

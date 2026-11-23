@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Night Result{% endblock %}
+{% block body_class %}theme-day{% endblock %}
+
+{% block content %}
+<div class="text-center space-y-6">
+    <div class="text-6xl">☀️</div>
+    <h2 class="text-3xl font-bold font-medieval">Morning — Round {{ round }}</h2>
+
+    {% if killed %}
+<div class="bg-black/60 border-2 border-red-700 rounded-2xl p-6 death-shake bloody-shadow">
+    <div class="text-6xl mb-3 animate-pulse text-blood">💀</div>
+    <p class="text-red-300 text-sm mb-2 uppercase tracking-widest">Blood spills tonight</p>
+    {% for name in killed %}
+    <p class="text-4xl font-bold text-red-400 font-medieval text-blood">{{ name }}</p>
+    {% endfor %}
+</div>
+{% else %}
+<div class="bg-black/40 border-2 border-emerald-800 rounded-2xl p-6">
+    <div class="text-5xl mb-2">🛡️</div>
+    <p class="text-emerald-200 text-lg font-bold">No blood spilled tonight.</p>
+</div>
+{% endif %}
+
+    <a href="/offline/day" class="block bg-yellow-600 hover:bg-yellow-500 rounded-xl py-5 font-bold text-lg">
+        Continue to Day →
+    </a> 
+
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async function() {
+    // 1. "Morning comes. Everyone, open your eyes."
+    await speak("Morning comes. Everyone, open your eyes.");
+    await sleep(800);
+
+    // 2. Death announcement
+    {% if killed %}
+        {% if killed|length == 1 %}
+            await speak("Last night, one player died.");
+        {% elif killed|length == 2 %}
+            await speak("Last night, two players died.");
+        {% else %}
+            await speak("Last night, {{ killed|length }} players died.");
+        {% endif %}
+    {% else %}
+        await speak("No one died last night. The village is safe.");
+    {% endif %}
+})();
+
+function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+}
+</script>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Day {{ round }}{% endblock %}
+{% block body_class %}theme-day{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="text-center">
+        <div class="text-7xl">☀️</div>
+        <h2 class="text-3xl font-bold font-medieval">Day {{ round }}</h2>
+        <p class="text-white-900 mt-2">Discuss with the group!</p>
+    </div>
+
+    {% if killed %}
+    <div class="bg-red-900/60 border border-red-700 rounded-lg p-3 text-sm">
+        <p class="text-gray-200 mb-1">Died last night:</p>
+        {% for name in killed %}
+        <p class="font-semibold text-red-200">{{ name }}</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="bg-gray-900/60 rounded-lg p-4 text-sm">
+        <p class="text-gray-300 mb-2">Alive ({{ alive|length }}):</p>
+        {% for p in alive %}<p class="text-gray-100">• {{ p.name }}</p>{% endfor %}
+    </div>
+
+    <form method="POST">
+        <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-500 rounded-xl py-5 font-bold text-lg">
+            🗳️ Start Voting →
+        </button>
+    </form>
+</div>
+{% endblock %}

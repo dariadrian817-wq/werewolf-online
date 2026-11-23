@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Close Eyes{% endblock %}
+{% block body_class %}theme-night{% endblock %}
+
+{% block content %}
+<div class="text-center space-y-6">
+
+    <div class="text-7xl">🌙</div>
+
+    <div class="bg-gray-800 border-2 border-gray-700 rounded-2xl py-10 px-6">
+        <p class="text-3xl font-black capitalize text-gray-300">
+            {% if role == 'werewolf' %}🐺 Werewolves
+            {% elif role == 'sheriff' %}⭐ Sheriff
+            {% elif role == 'witch' %}🧙‍♀️ Witch
+            {% elif role == 'doctor' %}💊 Doctor
+            {% elif role == 'seer' %}🔮 Seer
+            {% endif %}
+        </p>
+        <p class="text-xl text-gray-400 mt-3" id="close-status">
+            Close your eyes...
+        </p>
+        <p class="text-sm text-gray-500 mt-2">Place the device face-down in the middle</p>
+    </div>
+
+    <a id="continue-link" href="/offline/night/start?next=1"
+       class="hidden w-full bg-gray-700 hover:bg-gray-600 rounded-xl py-5 font-bold text-lg">
+        Done — Next role →
+    </a>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const role = "{{ role }}";
+const roleVoice = {
+    'werewolf': 'Werewolves',
+    'sheriff': 'Sheriff',
+    'witch': 'Witch',
+    'doctor': 'Doctor',
+    'seer': 'Seer'
+};
+
+(async function() {
+    await speak(`${roleVoice[role]}, close your eyes. Pass the device to the next role.`);
+    document.getElementById('continue-link').classList.remove('hidden');
+})();
+</script>
+{% endblock %}

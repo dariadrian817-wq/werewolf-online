@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Lobby — {{ code }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="text-center">
+        <p class="text-gray-400 text-sm">Room Code</p>
+        <h2 class="text-4xl font-bold tracking-widest text-indigo-400">{{ code }}</h2>
+        <button onclick="copyCode()"
+                class="mt-2 text-sm text-gray-400 hover:text-white underline">
+            📋 Copy code
+        </button>
+    </div>
+
+    <div class="bg-gray-800 rounded-lg p-4">
+        <p class="text-sm text-gray-400 mb-2">Players ({{ players|length }}/18)</p>
+        <ul class="space-y-1">
+            {% for p in players %}
+            <li class="text-gray-200">• {{ p }}</li>
+            {% else %}
+            <li class="text-gray-600 italic">No players yet. Share the code!</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3 text-yellow-200 text-sm">
+        ⚠️ Real-time join + start game coming in Week 17.
+    </div>
+
+    <a href="/" class="block text-center text-sm text-gray-500 hover:text-gray-300">← Back to menu</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function copyCode() {
+        navigator.clipboard.writeText("{{ code }}");
+        alert("Room code copied!");
+    }
+</script>
+{% endblock %}

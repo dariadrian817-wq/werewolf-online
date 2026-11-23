@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}Game Over{% endblock %}
+{% block body_class %}{% if winner == 'village' %}theme-victory{% else %}theme-danger{% endif %}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="text-center">
+        <div class="text-7xl">{% if winner == 'village' %}🎉{% else %}🐺{% endif %}</div>
+        <h2 class="text-4xl font-bold font-medieval
+            {% if winner == 'village' %}text-emerald-300{% else %}text-red-300{% endif %}">
+            {% if winner == 'village' %}Village Wins!{% else %}Werewolves Win!{% endif %}
+        </h2>
+    </div>
+
+    <div class="bg-gray-800 rounded-lg p-4">
+        <p class="text-sm text-gray-400 mb-3">All roles:</p>
+        <div class="space-y-2">
+            {% for p in players %}
+            <div class="flex justify-between items-center py-1 border-b border-gray-700 last:border-0">
+                <span class="{% if not p.alive %}line-through text-gray-600{% endif %}">{{ p.name }}</span>
+                <span class="text-sm capitalize
+                    {% if p.role == 'werewolf' %}text-red-400
+                    {% elif p.role == 'seer' %}text-indigo-400
+                    {% elif p.role == 'doctor' %}text-emerald-400
+                    {% elif p.role == 'witch' %}text-purple-400
+                    {% elif p.role == 'sheriff' %}text-yellow-400
+                    {% else %}text-gray-400{% endif %}">
+                    {{ p.role }}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="bg-gray-800 rounded-lg p-4 text-sm">
+        <p class="text-gray-400 mb-2">Game log:</p>
+        {% for entry in log %}
+        <p class="text-gray-300 text-xs py-0.5">
+            R{{ entry.round }} ({{ entry.type }}):
+            {% if entry.type == 'night' %}
+                {% if entry.killed %}{{ entry.killed|join(', ') }} died{% else %}no one died{% endif %}
+            {% else %}
+                {% if entry.eliminated %}{{ entry.eliminated }} voted out{% else %}skip{% endif %}
+            {% endif %}
+        </p>
+        {% endfor %}
+    </div>
+
+    <a href="/" class="block bg-emerald-600 hover:bg-emerald-500 rounded-xl py-4 font-bold text-center">
+        🏠 Back to Home
+    </a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async function() {
+    {% if winner == 'village' %}
+        await speak("The village wins! All werewolves have been eliminated.");
+        await sleep(600);
+        await speak("Peace returns to the village.");
+    {% else %}
+        await speak("The werewolves win. The village has fallen.");
+        await sleep(600);
+        await speak("The hunt was successful. Darkness covers the land.");
+    {% endif %}
+})();
+
+function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+}
+</script>
+{% endblock %}
