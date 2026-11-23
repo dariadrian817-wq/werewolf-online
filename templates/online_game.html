@@ -1,0 +1,399 @@
+{% extends 'base.html' %}
+{% block title %}Room {{ code }} — Werewolf{% endblock %}
+{% block body_class %}theme-night{% endblock %}
+
+{% block content %}
+<div class="space-y-4 py-4">
+
+    <!-- Header -->
+    <div class="text-center">
+        <p class="text-xs tracking-widest text-red-400 uppercase">Room</p>
+        <h2 class="text-3xl font-bold font-medieval text-red-300 tracking-widest">{{ code }}</h2>
+        <p id="phase-label" class="text-xs text-red-500 mt-1">Lobby</p>
+    </div>
+
+    <!-- Player list -->
+    <div class="bg-black/50 border-2 border-red-900 rounded-xl p-3">
+        <p class="text-xs text-red-400 uppercase tracking-widest mb-2">Players</p>
+        <div id="players" class="space-y-1"></div>
+    </div>
+
+    <!-- Action area (dynamic) -->
+    <div id="action-area" class="hidden bg-black/60 border-2 border-red-700 rounded-xl p-4 space-y-2">
+        <p id="action-title" class="text-center font-bold text-red-300 mb-2"></p>
+        <div id="action-buttons" class="space-y-2 max-h-64 overflow-y-auto"></div>
+    </div>
+
+    <!-- Chat -->
+    <div class="bg-black/50 border border-red-900 rounded-xl p-3">
+        <p class="text-xs text-red-400 uppercase tracking-widest mb-2">Chat</p>
+        <div id="chat-log" class="h-32 overflow-y-auto text-sm space-y-1 mb-2"></div>
+        <div class="flex gap-2">
+            <input id="chat-input" type="text" maxlength="200" placeholder="Say something..."
+                   class="flex-1 bg-black/60 border border-red-900 rounded px-3 py-2 text-sm">
+            <button onclick="sendChat()" class="bg-red-800 hover:bg-red-700 px-4 rounded text-sm">Send</button>
+        </div>
+    </div>
+
+    <!-- Host controls -->
+    <div id="host-controls" class="hidden space-y-2">
+        <button id="start-btn" onclick="startGame()"
+                class="w-full bg-gradient-to-r from-red-700 to-red-600 rounded-xl py-4 font-bold">
+            ▶ Start Game
+        </button>
+        <button id="next-btn" onclick="nextPhase()" style="display:none;"
+                class="w-full bg-yellow-700 hover:bg-yellow-600 rounded-xl py-3 font-semibold">
+            🗳️ Start Voting
+        </button>
+    </div>
+
+    <!-- Ready toggle (non-host) -->
+    <button id="ready-btn" onclick="toggleReady()"
+            class="w-full bg-gray-800 hover:bg-gray-700 border border-red-900 rounded-xl py-3">
+        ✓ Mark Ready
+    </button>
+
+    <!-- Leave -->
+    <button onclick="leaveRoom()"
+            class="w-full text-xs text-gray-600 hover:text-gray-400 py-2">
+        Leave room
+    </button>
+
+</div>
+
+<!-- Blood splatter overlay -->
+<div id="splatter" class="fixed inset-0 pointer-events-none z-40 hidden"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<script>
+const ROOM_CODE = "{{ code }}";
+const socket = io();
+
+function getPlayerId() {
+    let id = localStorage.getItem('wolf_player_id');
+    if (!id) {
+        id = 'p_' + Math.random().toString(36).substr(2, 12) + Date.now();
+        localStorage.setItem('wolf_player_id', id);
+    }
+    return id;
+}
+const PLAYER_ID = getPlayerId();
+
+let myRole = null;
+let myAlive = true;
+let currentPhase = 'lobby';
+let hostId = null;
+let players = [];
+
+// ── JOIN on load ──
+socket.on('connect', () => {
+    // Rejoin (for reconnect)
+    const name = localStorage.getItem('wolf_player_name') || 'Player';
+    socket.emit('join_room_event', {
+        code: ROOM_CODE,
+        player_id: PLAYER_ID,
+        name: name,
+    });
+});
+
+socket.on('room_joined', () => {
+    // ok
+});
+
+socket.on('state', (s) => {
+    players = s.players;
+    currentPhase = s.phase;
+    hostId = s.host_id;
+    myRole = s.your_role || myRole;
+    myAlive = s.you_alive !== false;
+
+    renderPlayers();
+    renderPhase(s);
+    renderHostControls();
+});
+
+socket.on('your_role', (data) => {
+    myRole = data.role;
+    // Show dramatic reveal
+    showRoleReveal(data.role);
+});
+
+socket.on('your_turn', (data) => {
+    renderAction(data.role, data.targets);
+});
+
+socket.on('night_resolved', (data) => {
+    if (data.killed.length > 0) {
+        triggerBloodSplatter();
+        speak("Blood spills. " + data.killed.map(k => k.name).join(" and ") + " died.");
+    } else {
+        speak("No one died tonight.");
+    }
+    showToast(
+        data.killed.length > 0
+            ? `💀 ${data.killed.map(k => k.name).join(', ')} died`
+            : '🛡️ No one died',
+        'red'
+    );
+});
+
+socket.on('seer_result', (data) => {
+    alert(`🔮 ${data.name} is ${data.role.toUpperCase()}`);
+});
+
+socket.on('vote_started', (data) => {
+    renderVote(data.targets);
+});
+
+socket.on('vote_resolved', (data) => {
+    if (data.eliminated) {
+        triggerBloodSplatter();
+        speak(data.eliminated.name + " has been voted out.");
+        showToast(`🗳️ ${data.eliminated.name} eliminated (${data.eliminated.role})`, 'red');
+    } else {
+        showToast('No one eliminated (tie or skip)', 'gray');
+    }
+});
+
+socket.on('game_over', (data) => {
+    renderGameOver(data);
+});
+
+socket.on('chat', (entry) => {
+    addChat(entry);
+});
+
+socket.on('error_msg', (data) => {
+    showToast('⚠️ ' + data.msg, 'red');
+});
+
+// ── ACTIONS ──
+function startGame() {
+    socket.emit('start_game', { code: ROOM_CODE, player_id: PLAYER_ID });
+}
+
+function toggleReady() {
+    socket.emit('toggle_ready', { code: ROOM_CODE, player_id: PLAYER_ID });
+}
+
+function sendChat() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    socket.emit('chat_message', {
+        code: ROOM_CODE, player_id: PLAYER_ID, text: text
+    });
+    input.value = '';
+}
+
+function nextPhase() {
+    socket.emit('next_phase', { code: ROOM_CODE, player_id: PLAYER_ID });
+}
+
+function submitAction(targetId) {
+    socket.emit('submit_action', {
+        code: ROOM_CODE, player_id: PLAYER_ID, target_id: targetId
+    });
+    hideAction();
+}
+
+function castVote(targetId) {
+    socket.emit('cast_vote', {
+        code: ROOM_CODE, player_id: PLAYER_ID, target_id: targetId
+    });
+    hideAction();
+}
+
+function leaveRoom() {
+    socket.emit('leave_room_event', { code: ROOM_CODE, player_id: PLAYER_ID });
+    setTimeout(() => window.location.href = '/', 300);
+}
+
+// ── RENDERERS ──
+function renderPlayers() {
+    const container = document.getElementById('players');
+    container.innerHTML = '';
+    players.forEach(p => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between py-1 ' +
+                        (p.alive ? '' : 'opacity-40 line-through');
+        const you = p.id === PLAYER_ID ? ' (you)' : '';
+        const host = p.id === hostId ? ' 👑' : '';
+        const ready = p.ready ? ' ✓' : '';
+        const offline = !p.connected ? ' ⚡' : '';
+        div.innerHTML = `
+            <span class="text-sm text-red-200">${escapeHtml(p.name)}${you}${host}${offline}</span>
+            <span class="text-xs text-gray-500">${ready}</span>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function renderPhase(s) {
+    const label = document.getElementById('phase-label');
+    const labels = {
+        'lobby': 'Lobby',
+        'night_starting': 'Night begins...',
+        'night': `Night ${s.round || ''}`,
+        'day': `Day ${s.round || ''} — Discussion`,
+        'vote': `Day ${s.round || ''} — Voting`,
+        'ended': 'Game Over',
+    };
+    label.textContent = labels[s.phase] || s.phase;
+
+    // Next button visible on day (host only)
+    const nextBtn = document.getElementById('next-btn');
+    if (s.phase === 'day' && PLAYER_ID === hostId) {
+        nextBtn.style.display = 'block';
+    } else {
+        nextBtn.style.display = 'none';
+    }
+
+    // Hide action area on lobby
+    if (s.phase === 'lobby') hideAction();
+}
+
+function renderHostControls() {
+    const startBtn = document.getElementById('start-btn');
+    const isHost = PLAYER_ID === hostId;
+    if (currentPhase === 'lobby' && isHost) {
+        startBtn.style.display = 'block';
+    } else {
+        startBtn.style.display = 'none';
+    }
+    // Ready button: hide for host
+    document.getElementById('ready-btn').style.display = isHost ? 'none' : 'block';
+}
+
+function renderAction(role, targets) {
+    const area = document.getElementById('action-area');
+    const title = document.getElementById('action-title');
+    const buttons = document.getElementById('action-buttons');
+
+    area.classList.remove('hidden');
+    buttons.innerHTML = '';
+
+    const titles = {
+        'werewolf': '🐺 Choose your victim',
+        'sheriff': '⭐ Choose someone to kill',
+        'doctor': '💊 Choose someone to protect',
+        'seer': '🔮 Choose someone to inspect',
+        'witch': '🧙‍♀️ Poison someone (or skip)',
+    };
+    title.textContent = titles[role] || 'Action';
+
+    targets.forEach(t => {
+        const btn = document.createElement('button');
+        btn.className = 'w-full bg-red-950 hover:bg-red-900 border border-red-800 rounded-lg py-3 text-left px-4 text-red-200';
+        btn.textContent = t.name;
+        btn.onclick = () => submitAction(t.id);
+        buttons.appendChild(btn);
+    });
+
+    if (role === 'sheriff' || role === 'witch') {
+        const skip = document.createElement('button');
+        skip.className = 'w-full bg-gray-800 hover:bg-gray-700 rounded-lg py-3 text-sm text-gray-400 mt-2';
+        skip.textContent = '⏭️ Skip';
+        skip.onclick = () => submitAction('skip');
+        buttons.appendChild(skip);
+    }
+}
+
+function renderVote(targets) {
+    const area = document.getElementById('action-area');
+    const title = document.getElementById('action-title');
+    const buttons = document.getElementById('action-buttons');
+
+    area.classList.remove('hidden');
+    title.textContent = '🗳️ Vote someone out';
+    buttons.innerHTML = '';
+
+    targets.forEach(t => {
+        if (t.id === PLAYER_ID) return;   // can't vote self
+        const btn = document.createElement('button');
+        btn.className = 'w-full bg-red-950 hover:bg-red-900 border border-red-800 rounded-lg py-3 text-left px-4 text-red-200';
+        btn.textContent = t.name;
+        btn.onclick = () => castVote(t.id);
+        buttons.appendChild(btn);
+    });
+
+    const skip = document.createElement('button');
+    skip.className = 'w-full bg-gray-800 hover:bg-gray-700 rounded-lg py-3 text-sm text-gray-400 mt-2';
+    skip.textContent = '⏭️ Skip vote';
+    skip.onclick = () => castVote('skip');
+    buttons.appendChild(skip);
+}
+
+function hideAction() {
+    document.getElementById('action-area').classList.add('hidden');
+}
+
+function renderGameOver(data) {
+    hideAction();
+    triggerBloodSplatter();
+    const winner = data.winner === 'village' ? 'Village Wins! 🎉' : 'Werewolves Win! 🐺';
+    speak(winner);
+    showToast(winner + ' — check your roles below', 'red', 5000);
+
+    let html = `<div class="bg-black/80 border-2 border-red-600 rounded-2xl p-6 mt-4">
+        <h2 class="text-2xl font-bold text-center mb-3 ${data.winner === 'village' ? 'text-emerald-400' : 'text-red-400'} font-medieval">
+            ${winner}
+        </h2>
+        <div class="space-y-1 text-sm">`;
+    data.roles.forEach(r => {
+        html += `<div class="flex justify-between ${r.alive ? '' : 'opacity-40 line-through'}">
+            <span>${escapeHtml(r.name)}</span>
+            <span class="capitalize">${r.role}</span>
+        </div>`;
+    });
+    html += `</div></div>`;
+    document.getElementById('action-area').innerHTML = html;
+    document.getElementById('action-area').classList.remove('hidden');
+}
+
+function addChat(entry) {
+    const log = document.getElementById('chat-log');
+    const div = document.createElement('div');
+    div.className = 'text-xs';
+    div.innerHTML = `<span class="text-red-400 font-bold">${escapeHtml(entry.from)}:</span> <span class="text-gray-300">${escapeHtml(entry.text)}</span>`;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+}
+
+function showRoleReveal(role) {
+    const emojis = {
+        'werewolf': '🐺', 'seer': '🔮', 'doctor': '💊',
+        'witch': '🧙‍♀️', 'sheriff': '⭐', 'villager': '👤'
+    };
+    showToast(`${emojis[role] || '?'} You are ${role.toUpperCase()}`, 'purple', 4000);
+    speak(`You are ${role}.`);
+}
+
+function showToast(msg, color, duration = 3000) {
+    const t = document.createElement('div');
+    t.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-black/90 border-2 border-red-600 rounded-xl px-6 py-3 text-red-200 font-bold shadow-2xl';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), duration);
+}
+
+function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
+// Save name for reconnect
+document.getElementById('chat-input')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendChat();
+});
+
+// Store name (if came from join page)
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('name')) {
+    localStorage.setItem('wolf_player_name', urlParams.get('name'));
+}
+</script>
+{% endblock %}

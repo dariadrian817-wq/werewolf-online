@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, session, redirect, url_for
 import random
 import string
 from game_engine.engine import GameEngine
+from online.sockets import socketio
 
 app = Flask(__name__)
 import os
@@ -87,29 +88,15 @@ def offline_done():
 
 # ---------- ROUTES: ONLINE (stub) ----------
 
-@app.route('/online/create', methods=['POST'])
-def online_create():
-    code = generate_room_code()
-    while code in rooms:
-        code = generate_room_code()
-    rooms[code] = {'players': [], 'mode': 'online'}
-    return redirect(url_for('online_lobby', code=code))
-
-@app.route('/online/join', methods=['GET', 'POST'])
-def online_join():
-    if request.method == 'POST':
-        code = request.form.get('code', '').upper().strip()
-        if code not in rooms:
-            return render_template('online_join.html', error="Room not found.")
-        return redirect(url_for('online_lobby', code=code))
+@app.route('/online')
+def online_index():
+    """Entry point — create or join."""
     return render_template('online_join.html')
 
-@app.route('/online/lobby/<code>')
-def online_lobby(code):
-    room = rooms.get(code)
-    if not room:
-        return redirect(url_for('online_join'))
-    return render_template('online_lobby.html', code=code, players=room['players'])
+@app.route('/online/room/<code>')
+def online_room(code):
+    """Room page — handles both lobby and game."""
+    return render_template('online_game.html', code=code)
 # ---------- GAME HELPERS ----------
 
 def save_game(engine):
@@ -497,7 +484,10 @@ def offline_night_skip():
 
 
 
+# ── Register SocketIO with app ──
+socketio.init_app(app, async_mode='eventlet')
+
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)

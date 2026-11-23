@@ -1,38 +1,108 @@
 {% extends 'base.html' %}
-{% block title %}Join Online — Werewolf{% endblock %}
+{% block title %}Play Online — Werewolf{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
+<div class="space-y-6 py-6">
+
     <div class="text-center">
-        <h2 class="text-3xl font-bold">🌐 Online Mode</h2>
-        <p class="text-gray-400 mt-2">Create or join a room</p>
+        <h1 class="text-4xl font-bold font-medieval text-transparent bg-clip-text
+                   bg-gradient-to-b from-red-400 via-red-600 to-red-900">
+            🌐 Play Online
+        </h1>
+        <p class="text-red-300 text-sm mt-2">Real-time multiplayer</p>
     </div>
 
-    {% if error %}
-    <div class="bg-red-900/50 border border-red-700 rounded-lg p-3 text-red-200 text-sm">
-        {{ error }}
+    <!-- Name input (shared) -->
+    <div>
+        <label class="text-xs text-red-300 uppercase tracking-widest">Your Name</label>
+        <input id="name-input" type="text" maxlength="20" placeholder="e.g. Alice"
+               class="w-full mt-1 bg-black/60 border-2 border-red-900 rounded-xl px-4 py-3
+                      text-gray-100 focus:outline-none focus:border-red-600">
     </div>
-    {% endif %}
 
-    <form method="POST" action="/online/create">
-        <button type="submit"
-                class="w-full bg-indigo-600 hover:bg-indigo-500 rounded-lg py-4 font-semibold text-lg">
+    <!-- Create room -->
+    <div class="bg-black/40 border border-red-900 rounded-xl p-4">
+        <p class="text-sm text-red-200 mb-3">Create a new room</p>
+        <button onclick="createRoom()"
+                class="w-full bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500
+                       rounded-xl py-4 font-bold">
             + Create Room
         </button>
-    </form>
+    </div>
 
-    <div class="text-center text-gray-500 text-sm">— or —</div>
+    <div class="text-center text-red-500 text-sm">— or —</div>
 
-    <form method="POST" action="/online/join" class="space-y-3">
-        <input type="text" name="code" placeholder="Enter 6-letter code"
-               maxlength="6" style="text-transform: uppercase;"
-               class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-center text-2xl tracking-widest focus:outline-none focus:border-indigo-500">
-        <button type="submit"
-                class="w-full bg-gray-700 hover:bg-gray-600 rounded-lg py-3 font-semibold">
+    <!-- Join room -->
+    <div class="bg-black/40 border border-red-900 rounded-xl p-4 space-y-3">
+        <p class="text-sm text-red-200">Join existing room</p>
+        <input id="code-input" type="text" maxlength="6" placeholder="ROOM CODE"
+               style="text-transform: uppercase;"
+               class="w-full bg-black/60 border-2 border-red-900 rounded-xl px-4 py-3
+                      text-center text-2xl tracking-widest text-gray-100
+                      focus:outline-none focus:border-red-600">
+        <button onclick="joinRoom()"
+                class="w-full bg-gray-800 hover:bg-gray-700 border border-red-900 rounded-xl py-3 font-semibold">
             Join Room
         </button>
-    </form>
+    </div>
+
+    <div id="error-msg" class="hidden bg-red-950 border border-red-700 rounded-xl p-3 text-sm text-red-200"></div>
 
     <a href="/" class="block text-center text-sm text-gray-500 hover:text-gray-300">← Back to menu</a>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<script>
+const socket = io();
+
+// Persistent player ID
+function getPlayerId() {
+    let id = localStorage.getItem('wolf_player_id');
+    if (!id) {
+        id = 'p_' + Math.random().toString(36).substr(2, 12) + Date.now();
+        localStorage.setItem('wolf_player_id', id);
+    }
+    return id;
+}
+
+function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = '⚠️ ' + msg;
+    el.classList.remove('hidden');
+}
+
+function getName() {
+    const n = document.getElementById('name-input').value.trim();
+    if (!n) { showError('Enter your name'); return null; }
+    return n;
+}
+
+socket.on('room_joined', (data) => {
+    window.location.href = '/online/room/' + data.code;
+});
+
+socket.on('error_msg', (data) => {
+    showError(data.msg);
+});
+
+function createRoom() {
+    const name = getName();
+    if (!name) return;
+    socket.emit('create_room', { player_id: getPlayerId(), name: name });
+}
+
+function joinRoom() {
+    const name = getName();
+    if (!name) return;
+    const code = document.getElementById('code-input').value.trim().toUpperCase();
+    if (code.length !== 6) { showError('Code must be 6 characters'); return; }
+    socket.emit('join_room_event', {
+        code: code,
+        player_id: getPlayerId(),
+        name: name,
+    });
+}
+</script>
 {% endblock %}
