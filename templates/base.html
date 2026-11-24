@@ -357,38 +357,6 @@
     animation: splatter-in 2s ease-out forwards;
 }
 
-/* ── Claw marks ── */
-        .claw-marks {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 200px;
-    height: 200px;
-    pointer-events: none;
-    z-index: 3;
-    opacity: 0.35;
-}
-        .claw-marks::before,
-        .claw-marks::after {
-    content: '';
-    position: absolute;
-    width: 4px;
-    height: 180px;
-    background: linear-gradient(180deg, transparent 0%, #8b0000 20%, #dc2626 50%, #8b0000 80%, transparent 100%);
-    top: 10px;
-    transform: rotate(-15deg);
-    border-radius: 50%;
-    filter: blur(0.5px);
-    box-shadow: 0 0 10px rgba(220, 38, 38, 0.6);
-}
-        .claw-marks::before {
-    left: 30px;
-}
-        .claw-marks::after {
-    left: 70px;
-    transform: rotate(-10deg);
-    opacity: 0.85;
-}
 
 /* ── Bloody text hover ── */
         .bloody-text {
