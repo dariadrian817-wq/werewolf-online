@@ -1,1 +1,1 @@
-web: gunicorn -k gevent -w 1 app:app
+gunicorn --worker-class gevent -w 1 --bind 0.0.0.0:8080 app:app

@@ -1,3 +1,4 @@
+from gevent import monkey; monkey.patch_all()
 from flask import Flask, render_template, request, session, redirect, url_for
 import random
 import string
