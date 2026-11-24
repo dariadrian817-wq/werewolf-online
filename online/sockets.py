@@ -1,46 +1,50 @@
 """Real-time online multiplayer — SocketIO handlers."""
-from flask_socketio import SocketIO, emit, join_room as sio_join  # pyright: ignore[reportMissingModuleSource]
 import random
 import time
+from flask import request
+from flask_socketio import SocketIO, emit
 from game_engine.engine import GameEngine
 
 socketio = SocketIO(cors_allowed_origins="*")
 
 rooms = {}
 
+
 # ─────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────
 
 def generate_code():
-    chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # no confusing chars
+    chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
     return ''.join(random.choices(chars, k=6))
+
+
+def normalize_code(raw_code):
+    return (raw_code or '').strip().upper()
 
 
 def find_room_by_sid(sid):
     for code, room in rooms.items():
-        for pid, p in room['players'].items():
+        for p in room['players'].values():
             if p.get('sid') == sid:
                 return code
     return None
 
 
 def role_holders(room, role):
-    """Return list of player_ids with given role, alive."""
-    engine = room.get('engine')
-    if not engine:
+    """Return list of alive player_ids with the given role."""
+    if not room.get('engine') or not role:
         return []
     return [
         pid for pid in room['player_order']
         if pid in room['players']
-        and room['players'][pid]['alive']
-        and room['roles'].get(pid) == role
+        and room['players'][pid].get('alive', True)
+        and room.get('roles', {}).get(pid) == role
     ]
 
 
 def build_public_state(room, viewer_pid=None):
-    """State safe for everyone (or one viewer)."""
-    engine = room.get('engine')
+    """State safe for everyone (plus viewer's own role when assigned)."""
     players_out = []
     for pid in room['player_order']:
         p = room['players'].get(pid, {})
@@ -60,7 +64,6 @@ def build_public_state(room, viewer_pid=None):
         'round': room.get('round', 0),
     }
 
-    # Include viewer's own role only
     if viewer_pid and viewer_pid in room.get('roles', {}):
         state['your_role'] = room['roles'][viewer_pid]
         state['you_alive'] = room['players'].get(viewer_pid, {}).get('alive', True)
@@ -95,7 +98,6 @@ def advance_night(room):
 def start_night_step(room):
     """Begin the current night step (announce role, expect actions)."""
     ns = room['night_state']
-    engine = room['engine']
 
     if ns['step'] >= len(ns['queue']):
         resolve_night(room)
@@ -105,20 +107,14 @@ def start_night_step(room):
     holders = role_holders(room, role)
 
     if not holders:
-        # Dead role — skip (privacy handled separately)
         advance_night(room)
         return
 
     ns['current_role'] = role
-    ns['pending'] = set(holders)   # all holders must act (or one does for group)
-
-    # For werewolf/sheriff, only ONE needs to submit (representative)
-    # For witch/doctor/seer (single role), only that player.
-    # Simple MVP: any holder can submit; when one submits, move on.
+    ns['pending'] = set(holders)
 
     broadcast_state(room)
 
-    # Tell holders it's their turn (private event)
     for pid in holders:
         p = room['players'][pid]
         if p.get('sid'):
@@ -130,8 +126,8 @@ def start_night_step(room):
                         {'id': tpid, 'name': room['players'][tpid]['name']}
                         for tpid in room['player_order']
                         if tpid in room['players']
-                        and room['players'][tpid]['alive']
-                        and not (role == 'werewolf' and room['roles'].get(tpid) == 'werewolf')
+                        and room['players'][tpid].get('alive', True)
+                        and not (role == 'werewolf' and room.get('roles', {}).get(tpid) == 'werewolf')
                         and not (role == 'sheriff' and tpid == pid)
                         and not (role == 'witch' and tpid == pid)
                         and not (role == 'seer' and tpid == pid)
@@ -150,6 +146,7 @@ def resolve_night(room):
     killed_pids = [
         room['player_order'][i]
         for i in killed_indices
+        if 0 <= i < len(room['player_order'])
     ]
 
     for pid in killed_pids:
@@ -163,17 +160,22 @@ def resolve_night(room):
         'killed': killed_names,
     })
 
-    # Reset night state
     room['night_state'] = {
-        'queue': [], 'step': 0, 'actions': {},
-        'current_role': None, 'pending': set()
+        'queue': [],
+        'step': 0,
+        'actions': {},
+        'current_role': None,
+        'pending': set(),
     }
 
-    # Broadcast deaths
     broadcast_to_all(room, 'night_resolved', {
         'killed': [
-            {'name': room['players'][pid]['name'], 'role': room['roles'][pid]}
+            {
+                'name': room['players'][pid]['name'],
+                'role': room['roles'].get(pid),
+            }
             for pid in killed_pids
+            if pid in room['players']
         ],
         'round': room['round'],
     })
@@ -183,7 +185,6 @@ def resolve_night(room):
         end_game(room, winner)
         return
 
-    # Move to day
     room['phase'] = 'day'
     broadcast_state(room)
 
@@ -211,7 +212,7 @@ def start_night(room):
         'step': 0,
         'actions': {},
         'current_role': None,
-        'pending': set()
+        'pending': set(),
     }
     start_night_step(room)
 
@@ -223,7 +224,7 @@ def start_vote(room):
         'votes': {},
         'pending': set(
             pid for pid in room['player_order']
-            if pid in room['players'] and room['players'][pid]['alive']
+            if pid in room['players'] and room['players'][pid].get('alive', True)
         ),
     }
     broadcast_state(room)
@@ -231,7 +232,7 @@ def start_vote(room):
         'targets': [
             {'id': pid, 'name': room['players'][pid]['name']}
             for pid in room['player_order']
-            if pid in room['players'] and room['players'][pid]['alive']
+            if pid in room['players'] and room['players'][pid].get('alive', True)
         ]
     })
 
@@ -240,9 +241,8 @@ def resolve_vote(room):
     vs = room['vote_state']
     votes = vs['votes']
 
-    # Tally
     tally = {}
-    for voter, target in votes.items():
+    for _, target in votes.items():
         if target:
             tally[target] = tally.get(target, 0) + 1
 
@@ -252,15 +252,13 @@ def resolve_vote(room):
         candidates = [t for t, c in tally.items() if c == max_votes]
         if len(candidates) == 1:
             eliminated_pid = candidates[0]
-        # Tie → no elimination
 
     eliminated_name = None
     eliminated_role = None
-    if eliminated_pid:
+    if eliminated_pid and eliminated_pid in room['players']:
         eliminated_name = room['players'][eliminated_pid]['name']
-        eliminated_role = room['roles'][eliminated_pid]
+        eliminated_role = room['roles'].get(eliminated_pid)
         room['players'][eliminated_pid]['alive'] = False
-        # Update engine alive list
         idx = room['player_order'].index(eliminated_pid)
         room['engine'].alive[idx] = False
         room['engine'].log.append({
@@ -274,6 +272,7 @@ def resolve_vote(room):
         'tally': {
             room['players'][pid]['name']: count
             for pid, count in tally.items()
+            if pid in room['players']
         },
     })
 
@@ -282,7 +281,6 @@ def resolve_vote(room):
         end_game(room, winner)
         return
 
-    # Next night
     start_night(room)
 
 
@@ -292,8 +290,8 @@ def end_game(room, winner):
     all_roles = [
         {
             'name': room['players'][pid]['name'],
-            'role': room['roles'][pid],
-            'alive': room['players'][pid]['alive'],
+            'role': room['roles'].get(pid),
+            'alive': room['players'][pid].get('alive', False),
         }
         for pid in room['player_order']
         if pid in room['players']
@@ -301,7 +299,7 @@ def end_game(room, winner):
     broadcast_to_all(room, 'game_over', {
         'winner': winner,
         'roles': all_roles,
-        'log': room['engine'].log[-10:] if room['engine'] else [],
+        'log': room['engine'].log[-10:] if room.get('engine') else [],
     })
 
 
@@ -311,12 +309,13 @@ def end_game(room, winner):
 
 @socketio.on('connect')
 def on_connect():
-    emit('connected', {'sid': 'ok'})
+    emit('connected', {'sid': request.sid})
 
 
 @socketio.on('create_room')
 def on_create_room(data):
     """Host creates a new room."""
+    data = data or {}
     player_id = data.get('player_id')
     name = (data.get('name') or 'Host').strip()[:20]
     if not player_id:
@@ -327,13 +326,17 @@ def on_create_room(data):
     while code in rooms:
         code = generate_code()
 
+    sid = request.sid
     rooms[code] = {
         'code': code,
         'host_id': player_id,
         'players': {
             player_id: {
-                'name': name, 'sid': request_sid(),
-                'ready': False, 'alive': True, 'connected': True,
+                'name': name,
+                'sid': sid,
+                'ready': False,
+                'alive': True,
+                'connected': True,
             }
         },
         'player_order': [player_id],
@@ -346,47 +349,64 @@ def on_create_room(data):
         'vote_state': {},
     }
 
-    emit('room_joined', {'code': code}, to=request_sid())
+    emit('room_joined', {'code': code}, to=sid)
     broadcast_state(rooms[code])
 
 
 @socketio.on('join_room_event')
 def on_join_room(data):
-    """Player joins existing room."""
-    code = (data.get('code') or '').upper().strip()
+    """Player joins or rejoins an existing room."""
+    data = data or {}
+    code = normalize_code(data.get('code'))
     player_id = data.get('player_id')
     name = (data.get('name') or 'Player').strip()[:20]
 
-    if code not in rooms:
+    if not code or code not in rooms:
         emit('error_msg', {'msg': 'Room not found'})
         return
 
     room = rooms[code]
+    sid = request.sid
+
+    if player_id and player_id in room['players']:
+        # Allow existing player to reconnect/bind new socket ID even after redirect
+        room['players'][player_id]['sid'] = sid
+        room['players'][player_id]['connected'] = True
+        if name:
+            room['players'][player_id]['name'] = name
+        emit('room_joined', {'code': code}, to=sid)
+        broadcast_state(room)
+        return
+
     if room['phase'] != 'lobby':
         emit('error_msg', {'msg': 'Game already started'})
         return
 
-    if player_id in room['players']:
-        # Reconnect
-        room['players'][player_id]['sid'] = request_sid()
-        room['players'][player_id]['connected'] = True
-    elif len(room['players']) >= 18:
+    if not player_id:
+        emit('error_msg', {'msg': 'Missing player id'})
+        return
+
+    if len(room['players']) >= 18:
         emit('error_msg', {'msg': 'Room full'})
         return
-    else:
-        room['players'][player_id] = {
-            'name': name, 'sid': request_sid(),
-            'ready': False, 'alive': True, 'connected': True,
-        }
-        room['player_order'].append(player_id)
 
-    emit('room_joined', {'code': code}, to=request_sid())
+    room['players'][player_id] = {
+        'name': name,
+        'sid': sid,
+        'ready': False,
+        'alive': True,
+        'connected': True,
+    }
+    room['player_order'].append(player_id)
+
+    emit('room_joined', {'code': code}, to=sid)
     broadcast_state(room)
 
 
 @socketio.on('toggle_ready')
 def on_toggle_ready(data):
-    code = data.get('code')
+    data = data or {}
+    code = normalize_code(data.get('code'))
     player_id = data.get('player_id')
     room = rooms.get(code)
     if not room or player_id not in room['players']:
@@ -397,7 +417,8 @@ def on_toggle_ready(data):
 
 @socketio.on('start_game')
 def on_start_game(data):
-    code = data.get('code')
+    data = data or {}
+    code = normalize_code(data.get('code'))
     player_id = data.get('player_id')
     room = rooms.get(code)
 
@@ -412,7 +433,6 @@ def on_start_game(data):
         emit('error_msg', {'msg': 'Need at least 6 players'})
         return
 
-    # Assign roles (reuse offline logic)
     wolves = max(1, n // 4)
     role_list = ['werewolf'] * wolves + ['seer', 'doctor']
     if n >= 7:
@@ -430,15 +450,11 @@ def on_start_game(data):
 
     broadcast_state(room)
 
-    # Send each player their role privately
     for pid in room['player_order']:
         p = room['players'][pid]
         if p.get('sid'):
-            emit('your_role', {
-                'role': room['roles'][pid],
-            }, to=p['sid'])
+            emit('your_role', {'role': room['roles'][pid]}, to=p['sid'])
 
-    # Brief pause then start night
     socketio.sleep(3)
     start_night(room)
 
@@ -446,7 +462,8 @@ def on_start_game(data):
 @socketio.on('submit_action')
 def on_submit_action(data):
     """Player submits night action (werewolf kill, seer inspect, etc.)."""
-    code = data.get('code')
+    data = data or {}
+    code = normalize_code(data.get('code'))
     player_id = data.get('player_id')
     target_id = data.get('target_id')
     room = rooms.get(code)
@@ -456,39 +473,35 @@ def on_submit_action(data):
 
     ns = room['night_state']
     role = ns.get('current_role')
-    if role not in role_holders(room, role):
-        # Not this player's action
+    if player_id not in role_holders(room, role):
         return
 
     engine = room['engine']
     actions = ns['actions']
 
     if role == 'werewolf':
-        idx = room['player_order'].index(target_id)
-        actions['werewolf_kill'] = idx
+        if target_id in room['player_order']:
+            actions['werewolf_kill'] = room['player_order'].index(target_id)
     elif role == 'sheriff':
         if target_id == 'skip':
             actions['sheriff_kill'] = None
-        else:
-            idx = room['player_order'].index(target_id)
-            actions['sheriff_kill'] = idx
+        elif target_id in room['player_order']:
+            actions['sheriff_kill'] = room['player_order'].index(target_id)
     elif role == 'doctor':
-        idx = room['player_order'].index(target_id)
-        actions['doctor_save'] = idx
+        if target_id in room['player_order']:
+            actions['doctor_save'] = room['player_order'].index(target_id)
     elif role == 'seer':
-        idx = room['player_order'].index(target_id)
-        target_name = room['players'][target_id]['name']
-        target_role = room['roles'][target_id]
-        emit('seer_result', {
-            'name': target_name, 'role': target_role
-        }, to=room['players'][player_id]['sid'])
-        # Seer doesn't affect game state, just their info
+        if target_id in room['players'] and player_id in room['players'] and room['players'][player_id].get('sid'):
+            emit('seer_result', {
+                'name': room['players'][target_id]['name'],
+                'role': room['roles'].get(target_id),
+            }, to=room['players'][player_id]['sid'])
     elif role == 'witch':
         if actions.get('witch_poison_used_this_night'):
-            return  # already acted
-        idx = room['player_order'].index(target_id) if target_id != 'skip' else None
-        if idx is not None:
-            actions['witch_poison'] = idx
+            return
+        if target_id != 'skip' and target_id in room['player_order'] and not engine.witch_poison_used:
+            actions['witch_poison'] = room['player_order'].index(target_id)
+            actions['witch_poison_used_this_night'] = True
             engine.witch_poison_used = True
 
     ns['pending'].discard(player_id)
@@ -497,7 +510,8 @@ def on_submit_action(data):
 
 @socketio.on('cast_vote')
 def on_cast_vote(data):
-    code = data.get('code')
+    data = data or {}
+    code = normalize_code(data.get('code'))
     player_id = data.get('player_id')
     target_id = data.get('target_id')
     room = rooms.get(code)
@@ -518,7 +532,8 @@ def on_cast_vote(data):
 
 @socketio.on('chat_message')
 def on_chat(data):
-    code = data.get('code')
+    data = data or {}
+    code = normalize_code(data.get('code'))
     player_id = data.get('player_id')
     text = (data.get('text') or '').strip()[:200]
     room = rooms.get(code)
@@ -527,8 +542,8 @@ def on_chat(data):
         return
 
     p = room['players'][player_id]
-    if not p['alive']:
-        return   # dead can't chat
+    if not p.get('alive', True):
+        return
 
     entry = {
         'from': p['name'],
@@ -537,10 +552,9 @@ def on_chat(data):
         'ts': time.time(),
     }
 
-    # Night = werewolves only
     if room['phase'] == 'night':
-        if room['roles'].get(player_id) != 'werewolf':
-            return  # non-wolves can't chat at night
+        if room.get('roles', {}).get(player_id) != 'werewolf':
+            return
         for pid in role_holders(room, 'werewolf'):
             if room['players'][pid].get('sid'):
                 emit('chat', entry, to=room['players'][pid]['sid'])
@@ -550,8 +564,9 @@ def on_chat(data):
 
 @socketio.on('next_phase')
 def on_next_phase(data):
-    """Host advances from day → vote."""
-    code = data.get('code')
+    """Host advances from day to vote."""
+    data = data or {}
+    code = normalize_code(data.get('code'))
     player_id = data.get('player_id')
     room = rooms.get(code)
 
@@ -563,7 +578,8 @@ def on_next_phase(data):
 
 @socketio.on('leave_room_event')
 def on_leave(data):
-    code = data.get('code')
+    data = data or {}
+    code = normalize_code(data.get('code'))
     player_id = data.get('player_id')
     room = rooms.get(code)
     if not room or player_id not in room['players']:
@@ -571,7 +587,8 @@ def on_leave(data):
 
     if room['phase'] == 'lobby':
         del room['players'][player_id]
-        room['player_order'].remove(player_id)
+        if player_id in room['player_order']:
+            room['player_order'].remove(player_id)
         if player_id == room['host_id'] and room['player_order']:
             room['host_id'] = room['player_order'][0]
         if not room['players']:
@@ -579,7 +596,6 @@ def on_leave(data):
         else:
             broadcast_state(room)
     else:
-        # Mid-game: mark disconnected
         room['players'][player_id]['sid'] = None
         room['players'][player_id]['connected'] = False
         broadcast_state(room)
@@ -587,21 +603,16 @@ def on_leave(data):
 
 @socketio.on('disconnect')
 def on_disconnect():
-    code = find_room_by_sid(request_sid())
+    sid = request.sid
+    code = find_room_by_sid(sid)
     if not code:
         return
     room = rooms.get(code)
     if not room:
         return
-    for pid, p in room['players'].items():
-        if p.get('sid') == request_sid():
+    for p in room['players'].values():
+        if p.get('sid') == sid:
             p['sid'] = None
             p['connected'] = False
             break
     broadcast_state(room)
-
-
-# Request sid helper (flask-socketio 5.x)
-def request_sid():
-    from flask import request
-    return request.sid

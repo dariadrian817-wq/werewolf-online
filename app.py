@@ -1,24 +1,28 @@
-from gevent import monkey; monkey.patch_all()
-from flask import Flask, render_template, request, session, redirect, url_for
+from gevent import monkey
+monkey.patch_all()
+
+import os
 import random
 import string
+from flask import Flask, render_template, request, session, redirect, url_for
 from game_engine.engine import GameEngine
-from online.sockets import socketio
+from online.sockets import socketio, rooms as online_rooms
 
 app = Flask(__name__)
-import os
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-later')
 
-# ---------- IN-MEMORY STORE ----------
-rooms = {}   # {room_code: {'players': [...], 'mode': 'online'}}
+# Keep a reference to the shared online rooms store
+rooms = online_rooms
+
 
 # ---------- HELPERS ----------
 
 def generate_room_code():
     return ''.join(random.choices(string.ascii_uppercase, k=6))
 
+
 def assign_roles(n):
-    """Werewolves = n//4. Witch sa 7+. Sheriff sa 9+."""
+    """Werewolves = n//4. Witch at 7+. Sheriff at 9+."""
     wolves = max(1, n // 4)
     roles = ['werewolf'] * wolves
     roles += ['seer', 'doctor']
@@ -32,15 +36,18 @@ def assign_roles(n):
     random.shuffle(roles)
     return roles
 
+
 # ---------- ROUTES: HOME ----------
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/rules')
 def rules():
     return render_template('rules.html')
+
 
 # ---------- ROUTES: OFFLINE ----------
 
@@ -57,15 +64,15 @@ def offline_setup():
             return render_template('offline_setup.html',
                                    error="Max 18 players lang.",
                                    count=6)
-        # ✅ Reject duplicates
         if len(names) != len(set(names)):
             return render_template('offline_setup.html',
-                               error="Duplicate names — each player needs unique name.",
-                               count=6)
+                                   error="Duplicate names — each player needs unique name.",
+                                   count=6)
         session['players'] = names
         session['roles'] = assign_roles(len(names))
         return redirect(url_for('offline_reveal', idx=0))
     return render_template('offline_setup.html', count=6)
+
 
 @app.route('/offline/reveal/<int:idx>')
 def offline_reveal(idx):
@@ -79,6 +86,7 @@ def offline_reveal(idx):
                            role=roles[idx],
                            total=len(players))
 
+
 @app.route('/offline/done')
 def offline_done():
     roles = session.get('roles', [])
@@ -87,22 +95,28 @@ def offline_done():
         counts[r] = counts.get(r, 0) + 1
     return render_template('offline_done.html', counts=counts)
 
-# ---------- ROUTES: ONLINE (stub) ----------
+
+# ---------- ROUTES: ONLINE ----------
 
 @app.route('/online')
-@app.route('/online/join')       # ← alias, para hindi mag-404
+@app.route('/online/join')
 @app.route('/online/join/')
 def online_index():
     return render_template('online_join.html')
 
+
 @app.route('/online/room/<code>')
 def online_room(code):
     """Room page — handles both lobby and game."""
-    return render_template('online_game.html', code=code)
-# ---------- GAME HELPERS ----------
+    clean_code = (code or '').strip().upper()
+    return render_template('online_game.html', code=clean_code)
+
+
+# ---------- OFFLINE GAME HELPERS ----------
 
 def save_game(engine):
     session['game'] = engine.to_dict()
+
 
 def load_game():
     data = session.get('game')
@@ -110,8 +124,9 @@ def load_game():
         return None
     return GameEngine.from_dict(data)
 
+
 def get_night_queue(engine):
-    """Order matters: wolf → sheriff → witch → doctor → seer."""
+    """Order matters: wolf -> sheriff -> witch -> doctor -> seer."""
     queue = []
     if engine.alive_werewolves():
         queue.append('werewolf')
@@ -126,7 +141,7 @@ def get_night_queue(engine):
     return queue
 
 
-# ---------- START GAME ----------
+# ---------- START OFFLINE GAME ----------
 
 @app.route('/offline/start', methods=['POST'])
 def offline_start():
@@ -144,6 +159,8 @@ def offline_start():
     session['night_actions'] = {}
     session['witch_step'] = 'heal'
     return redirect(url_for('offline_night_start'))
+
+
 # ---------- NIGHT: START (router) ----------
 
 @app.route('/offline/night/start')
@@ -159,18 +176,16 @@ def offline_night_start():
         return redirect(url_for('offline_night_resolve'))
 
     next_role = queue[step]
-
-    # Check kung alive ang role holder
     role_holder_idx = engine.find_role_index(next_role)
 
     if role_holder_idx is None:
-        # Dead role — show no-action screen (privacy fix)
         return redirect(url_for('offline_night_no_action', role=next_role))
 
-    # Normal flow
     return render_template('offline_night_start.html',
                            role=next_role,
                            round=session.get('round', 1))
+
+
 # ---------- NIGHT: WEREWOLF ----------
 
 @app.route('/offline/night/werewolf', methods=['GET', 'POST'])
@@ -188,7 +203,6 @@ def offline_night_werewolf():
             return redirect(url_for('offline_night_werewolf'))
         target_idx = int(target)
 
-        # Server-side validation: bawal patayin ang kapwa werewolf
         if target_idx in wolf_indices:
             return redirect(url_for('offline_night_werewolf'))
 
@@ -198,12 +212,12 @@ def offline_night_werewolf():
         session['night_step'] = session.get('night_step', 0) + 1
         return redirect(url_for('offline_night_close', role='werewolf'))
 
-    # ✅ Exclude wolves from target list
     targets = [{'index': i, 'name': engine.players[i]}
                for i in engine.alive_indices() if i not in wolf_indices]
     return render_template('offline_night_werewolf.html',
                            wolves=wolves, targets=targets,
                            round=session.get('round', 1))
+
 
 # ---------- NIGHT: SHERIFF ----------
 
@@ -225,13 +239,15 @@ def offline_night_sheriff():
             actions['sheriff_kill'] = int(target)
         session['night_actions'] = actions
         session['night_step'] = session.get('night_step', 0) + 1
-        return redirect(url_for('offline_night_close', role='sheriff'))   # o 'sheriff', 'witch', etc.
+        return redirect(url_for('offline_night_close', role='sheriff'))
 
     targets = [{'index': i, 'name': engine.players[i]}
                for i in engine.alive_indices() if i != sheriff_idx]
     return render_template('offline_night_sheriff.html',
                            sheriff_name=sheriff_name, targets=targets,
                            round=session.get('round', 1))
+
+
 # ---------- NIGHT: WITCH (2 steps) ----------
 
 @app.route('/offline/night/witch', methods=['GET', 'POST'])
@@ -250,7 +266,6 @@ def offline_night_witch():
     step = session.get('witch_step', 'heal')
 
     if request.method == 'POST':
-        # HEAL STEP
         if step == 'heal':
             if request.form.get('heal_decision') == 'yes' and not engine.witch_heal_used:
                 actions = session.get('night_actions', {})
@@ -261,7 +276,6 @@ def offline_night_witch():
             session['witch_step'] = 'poison'
             return redirect(url_for('offline_night_witch'))
 
-        # POISON STEP
         if step == 'poison':
             poison = request.form.get('poison_decision')
             if poison and poison != 'skip' and not engine.witch_poison_used:
@@ -272,7 +286,7 @@ def offline_night_witch():
                 save_game(engine)
             session['witch_step'] = 'done'
             session['night_step'] = session.get('night_step', 0) + 1
-            return redirect(url_for('offline_night_close', role='witch'))   # o 'sheriff', 'witch', etc.
+            return redirect(url_for('offline_night_close', role='witch'))
 
     targets = [{'index': i, 'name': engine.players[i]}
                for i in engine.alive_indices() if i != witch_idx]
@@ -284,6 +298,7 @@ def offline_night_witch():
                            poison_available=not engine.witch_poison_used,
                            step=step, targets=targets,
                            round=session.get('round', 1))
+
 
 # ---------- NIGHT: DOCTOR ----------
 
@@ -302,13 +317,14 @@ def offline_night_doctor():
         actions['doctor_save'] = target
         session['night_actions'] = actions
         session['night_step'] = session.get('night_step', 0) + 1
-        return redirect(url_for('offline_night_close', role='doctor'))   # o 'sheriff', 'witch', etc.
+        return redirect(url_for('offline_night_close', role='doctor'))
 
     targets = [{'index': i, 'name': engine.players[i]}
                for i in engine.alive_indices()]
     return render_template('offline_night_doctor.html',
                            doctor_name=doctor_name, targets=targets,
                            round=session.get('round', 1))
+
 
 # ---------- NIGHT: SEER ----------
 
@@ -323,16 +339,16 @@ def offline_night_seer():
 
     if request.method == 'POST':
         if 'inspect' in request.form:
-            session.pop('seer_result', None)   # ✅ clear old
+            session.pop('seer_result', None)
             target = int(request.form['inspect'])
             session['seer_result'] = {
                 'name': engine.players[target],
                 'role': engine.roles[target],
-           }
+            }
         if 'confirm' in request.form:
             session.pop('seer_result', None)
             session['night_step'] = session.get('night_step', 0) + 1
-            return redirect(url_for('offline_night_close', role='seer'))   # o 'sheriff', 'witch', etc.
+            return redirect(url_for('offline_night_close', role='seer'))
 
     result = session.get('seer_result')
     targets = [{'index': i, 'name': engine.players[i]}
@@ -340,6 +356,8 @@ def offline_night_seer():
     return render_template('offline_night_seer.html',
                            seer_name=seer_name, targets=targets,
                            result=result, round=session.get('round', 1))
+
+
 @app.route('/offline/night/resolve')
 def offline_night_resolve():
     engine = load_game()
@@ -351,12 +369,11 @@ def offline_night_resolve():
     killed_names = [engine.players[i] for i in killed_indices]
 
     engine.log.append({
-            'round': session.get('round', 1),
-            'type': 'night',
+        'round': session.get('round', 1),
+        'type': 'night',
         'killed': killed_names,
     })
 
-    # ✅ Trim log (prevents 4KB cookie overflow)
     if len(engine.log) > 10:
         engine.log = engine.log[-10:]
 
@@ -364,7 +381,6 @@ def offline_night_resolve():
     session['night_step'] = 0
     session['killed_last_night'] = killed_names
 
-    # ✅ CHECK WIN FIRST, then save (para ma-persist ang winner)
     winner = engine.check_win()
     save_game(engine)
 
@@ -374,6 +390,8 @@ def offline_night_resolve():
     return render_template('offline_night_resolve.html',
                            killed=killed_names,
                            round=session.get('round', 1))
+
+
 # ---------- DAY ----------
 
 @app.route('/offline/day', methods=['GET', 'POST'])
@@ -391,6 +409,7 @@ def offline_day():
                            killed=killed, alive=alive,
                            round=session.get('round', 1))
 
+
 # ---------- VOTE ----------
 
 @app.route('/offline/vote', methods=['GET', 'POST'])
@@ -400,7 +419,6 @@ def offline_vote():
         return redirect(url_for('offline_setup'))
 
     if request.method == 'POST':
-        # ── Safe target parsing ──
         target = request.form.get('target', '').strip()
         if not target or target == 'skip':
             target_idx = None
@@ -410,42 +428,38 @@ def offline_vote():
             except (ValueError, TypeError):
                 target_idx = None
 
-        # ── Resolve vote ──
         eliminated_idx = engine.resolve_vote(target_idx)
         eliminated_name = (engine.players[eliminated_idx]
                            if eliminated_idx is not None else None)
 
-        # ── Log ──
         engine.log.append({
             'round': session.get('round', 1),
             'type': 'vote',
             'eliminated': eliminated_name,
         })
 
-        # ── Trim log (session size) ──
         if len(engine.log) > 10:
             engine.log = engine.log[-10:]
 
-        # ── Check win BEFORE save ──
         winner = engine.check_win()
         save_game(engine)
 
         if winner:
             return redirect(url_for('offline_gameover'))
 
-        # ── Advance round ──
         session['round'] = session.get('round', 1) + 1
         session['night_step'] = 0
         session['night_actions'] = {}
         session['witch_step'] = 'heal'
         return redirect(url_for('offline_night_start'))
 
-    # ── GET — show vote page ──
     targets = [{'index': i, 'name': engine.players[i]}
                for i in engine.alive_indices()]
     return render_template('offline_vote.html',
                            targets=targets,
                            round=session.get('round', 1))
+
+
 # ---------- GAME OVER ----------
 
 @app.route('/offline/gameover')
@@ -454,7 +468,6 @@ def offline_gameover():
     if not engine:
         return redirect(url_for('offline_setup'))
 
-    # 🛡️ SAFETY NET: kung walang winner sa session, i-recheck
     if engine.winner is None:
         engine.check_win()
         save_game(engine)
@@ -469,11 +482,13 @@ def offline_gameover():
                            players=all_players,
                            log=engine.log)
 
+
 @app.route('/offline/night/close/<role>')
 def offline_night_close(role):
     return render_template('offline_night_close.html',
                            role=role,
                            round=session.get('round', 1))
+
 
 @app.route('/offline/night/skip')
 def offline_night_skip():
@@ -485,10 +500,8 @@ def offline_night_skip():
     return redirect(url_for('offline_night_start'))
 
 
-
-# Payagan ang lahat ng origin (pinakamadali para sa deployment)
 socketio.init_app(app, async_mode="gevent", cors_allowed_origins="*")
+
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get('PORT', 5000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)

@@ -9,7 +9,7 @@
     <div class="text-center">
         <p class="text-xs tracking-widest text-red-400 uppercase">Room</p>
         <h2 class="text-3xl font-bold font-medieval text-red-300 tracking-widest">{{ code }}</h2>
-        <p id="phase-label" class="text-xs text-red-500 mt-1">Lobby</p>
+        <p id="phase-label" class="text-xs text-red-500 mt-1">Connecting...</p>
     </div>
 
     <!-- Player list -->
@@ -24,38 +24,42 @@
         <div id="action-buttons" class="space-y-2 max-h-64 overflow-y-auto"></div>
     </div>
 
+    <!-- Game over summary (dedicated container) -->
+    <div id="gameover-area" class="hidden"></div>
+
     <!-- Chat -->
     <div class="bg-black/50 border border-red-900 rounded-xl p-3">
         <p class="text-xs text-red-400 uppercase tracking-widest mb-2">Chat</p>
         <div id="chat-log" class="h-32 overflow-y-auto text-sm space-y-1 mb-2"></div>
         <div class="flex gap-2">
             <input id="chat-input" type="text" maxlength="200" placeholder="Say something..."
-                   class="flex-1 bg-black/60 border border-red-900 rounded px-3 py-2 text-sm">
-            <button onclick="sendChat()" class="bg-red-800 hover:bg-red-700 px-4 rounded text-sm">Send</button>
+                   class="flex-1 bg-black/60 border border-red-900 rounded px-3 py-2 text-sm text-gray-100">
+            <button id="chat-send-btn" type="button" onclick="sendChat()"
+                    class="bg-red-800 hover:bg-red-700 px-4 rounded text-sm font-semibold">Send</button>
         </div>
     </div>
 
     <!-- Host controls -->
-    <div id="host-controls" class="hidden space-y-2">
-        <button id="start-btn" onclick="startGame()"
-                class="w-full bg-gradient-to-r from-red-700 to-red-600 rounded-xl py-4 font-bold">
+    <div id="host-controls" class="space-y-2">
+        <button id="start-btn" type="button" onclick="startGame()" style="display:none;"
+                class="w-full bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500 rounded-xl py-4 font-bold">
             ▶ Start Game
         </button>
-        <button id="next-btn" onclick="nextPhase()" style="display:none;"
+        <button id="next-btn" type="button" onclick="nextPhase()" style="display:none;"
                 class="w-full bg-yellow-700 hover:bg-yellow-600 rounded-xl py-3 font-semibold">
             🗳️ Start Voting
         </button>
     </div>
 
     <!-- Ready toggle (non-host) -->
-    <button id="ready-btn" onclick="toggleReady()"
+    <button id="ready-btn" type="button" onclick="toggleReady()" style="display:none;"
             class="w-full bg-gray-800 hover:bg-gray-700 border border-red-900 rounded-xl py-3">
         ✓ Mark Ready
     </button>
 
     <!-- Leave -->
-    <button onclick="leaveRoom()"
-            class="w-full text-xs text-gray-600 hover:text-gray-400 py-2">
+    <button type="button" onclick="leaveRoom()"
+            class="w-full text-xs text-gray-500 hover:text-gray-300 py-2">
         Leave room
     </button>
 
@@ -68,13 +72,17 @@
 {% block scripts %}
 <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
 <script>
-const ROOM_CODE = "{{ code }}";
-const socket = io();
+const ROOM_CODE = "{{ code }}".trim().toUpperCase();
+const socket = io({
+    transports: ['websocket', 'polling'],
+    reconnectionAttempts: 5,
+    timeout: 10000
+});
 
 function getPlayerId() {
     let id = localStorage.getItem('wolf_player_id');
     if (!id) {
-        id = 'p_' + Math.random().toString(36).substr(2, 12) + Date.now();
+        id = 'p_' + Math.random().toString(36).substring(2, 14) + Date.now();
         localStorage.setItem('wolf_player_id', id);
     }
     return id;
@@ -87,9 +95,27 @@ let currentPhase = 'lobby';
 let hostId = null;
 let players = [];
 
-// ── JOIN on load ──
+// Safe wrappers in case base.html doesn't define these helpers
+function safeSplatter() {
+    if (typeof window.triggerBloodSplatter === 'function') {
+        window.triggerBloodSplatter();
+    }
+}
+
+function safeSpeak(text) {
+    if (typeof window.speak === 'function') {
+        window.speak(text);
+    }
+}
+
+// Store name if passed via query string
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('name')) {
+    localStorage.setItem('wolf_player_name', urlParams.get('name').trim());
+}
+
+// ── JOIN / REJOIN on connect ──
 socket.on('connect', () => {
-    // Rejoin (for reconnect)
     const name = localStorage.getItem('wolf_player_name') || 'Player';
     socket.emit('join_room_event', {
         code: ROOM_CODE,
@@ -98,59 +124,62 @@ socket.on('connect', () => {
     });
 });
 
+socket.on('connect_error', (err) => {
+    showToast('⚠️ Connection issue: ' + err.message, 'red');
+});
+
 socket.on('room_joined', () => {
-    // ok
+    // Bound to room
 });
 
 socket.on('state', (s) => {
-    players = s.players;
-    currentPhase = s.phase;
-    hostId = s.host_id;
-    myRole = s.your_role || myRole;
+    players = s.players || [];
+    currentPhase = s.phase || 'lobby';
+    hostId = s.host_id || null;
+    if (s.your_role) {
+        myRole = s.your_role;
+    }
     myAlive = s.you_alive !== false;
 
     renderPlayers();
     renderPhase(s);
     renderHostControls();
+    updateChatAvailability();
 });
 
 socket.on('your_role', (data) => {
     myRole = data.role;
-    // Show dramatic reveal
     showRoleReveal(data.role);
 });
 
 socket.on('your_turn', (data) => {
-    renderAction(data.role, data.targets);
+    renderAction(data.role, data.targets || []);
 });
 
 socket.on('night_resolved', (data) => {
-    if (data.killed.length > 0) {
-        triggerBloodSplatter();
-        speak("Blood spills. " + data.killed.map(k => k.name).join(" and ") + " died.");
+    const killed = data.killed || [];
+    if (killed.length > 0) {
+        safeSplatter();
+        safeSpeak("Blood spills. " + killed.map(k => k.name).join(" and ") + " died.");
+        showToast(`💀 ${killed.map(k => k.name).join(', ')} died`, 'red');
     } else {
-        speak("No one died tonight.");
+        safeSpeak("No one died tonight.");
+        showToast('🛡️ No one died', 'red');
     }
-    showToast(
-        data.killed.length > 0
-            ? `💀 ${data.killed.map(k => k.name).join(', ')} died`
-            : '🛡️ No one died',
-        'red'
-    );
 });
 
 socket.on('seer_result', (data) => {
-    alert(`🔮 ${data.name} is ${data.role.toUpperCase()}`);
+    showToast(`🔮 ${data.name} is ${String(data.role || '').toUpperCase()}`, 'purple', 4500);
 });
 
 socket.on('vote_started', (data) => {
-    renderVote(data.targets);
+    renderVote(data.targets || []);
 });
 
 socket.on('vote_resolved', (data) => {
     if (data.eliminated) {
-        triggerBloodSplatter();
-        speak(data.eliminated.name + " has been voted out.");
+        safeSplatter();
+        safeSpeak(data.eliminated.name + " has been voted out.");
         showToast(`🗳️ ${data.eliminated.name} eliminated (${data.eliminated.role})`, 'red');
     } else {
         showToast('No one eliminated (tie or skip)', 'gray');
@@ -166,7 +195,12 @@ socket.on('chat', (entry) => {
 });
 
 socket.on('error_msg', (data) => {
-    showToast('⚠️ ' + data.msg, 'red');
+    showToast('⚠️ ' + (data.msg || 'Error'), 'red', 4000);
+    if ((data.msg || '').toLowerCase().includes('room not found')) {
+        setTimeout(() => {
+            window.location.href = '/online/join';
+        }, 1800);
+    }
 });
 
 // ── ACTIONS ──
@@ -183,7 +217,9 @@ function sendChat() {
     const text = input.value.trim();
     if (!text) return;
     socket.emit('chat_message', {
-        code: ROOM_CODE, player_id: PLAYER_ID, text: text
+        code: ROOM_CODE,
+        player_id: PLAYER_ID,
+        text: text
     });
     input.value = '';
 }
@@ -194,21 +230,27 @@ function nextPhase() {
 
 function submitAction(targetId) {
     socket.emit('submit_action', {
-        code: ROOM_CODE, player_id: PLAYER_ID, target_id: targetId
+        code: ROOM_CODE,
+        player_id: PLAYER_ID,
+        target_id: targetId
     });
     hideAction();
 }
 
 function castVote(targetId) {
     socket.emit('cast_vote', {
-        code: ROOM_CODE, player_id: PLAYER_ID, target_id: targetId
+        code: ROOM_CODE,
+        player_id: PLAYER_ID,
+        target_id: targetId
     });
     hideAction();
 }
 
 function leaveRoom() {
     socket.emit('leave_room_event', { code: ROOM_CODE, player_id: PLAYER_ID });
-    setTimeout(() => window.location.href = '/', 300);
+    setTimeout(() => {
+        window.location.href = '/';
+    }, 250);
 }
 
 // ── RENDERERS ──
@@ -221,11 +263,11 @@ function renderPlayers() {
                         (p.alive ? '' : 'opacity-40 line-through');
         const you = p.id === PLAYER_ID ? ' (you)' : '';
         const host = p.id === hostId ? ' 👑' : '';
-        const ready = p.ready ? ' ✓' : '';
+        const ready = p.ready ? ' ✓ Ready' : '';
         const offline = !p.connected ? ' ⚡' : '';
         div.innerHTML = `
             <span class="text-sm text-red-200">${escapeHtml(p.name)}${you}${host}${offline}</span>
-            <span class="text-xs text-gray-500">${ready}</span>
+            <span class="text-xs text-gray-400">${ready}</span>
         `;
         container.appendChild(div);
     });
@@ -243,28 +285,40 @@ function renderPhase(s) {
     };
     label.textContent = labels[s.phase] || s.phase;
 
-    // Next button visible on day (host only)
     const nextBtn = document.getElementById('next-btn');
-    if (s.phase === 'day' && PLAYER_ID === hostId) {
-        nextBtn.style.display = 'block';
-    } else {
-        nextBtn.style.display = 'none';
-    }
+    nextBtn.style.display = (s.phase === 'day' && PLAYER_ID === hostId) ? 'block' : 'none';
 
-    // Hide action area on lobby
-    if (s.phase === 'lobby') hideAction();
+    if (s.phase === 'lobby') {
+        hideAction();
+        document.getElementById('gameover-area').classList.add('hidden');
+    }
 }
 
 function renderHostControls() {
     const startBtn = document.getElementById('start-btn');
+    const readyBtn = document.getElementById('ready-btn');
     const isHost = PLAYER_ID === hostId;
-    if (currentPhase === 'lobby' && isHost) {
-        startBtn.style.display = 'block';
-    } else {
-        startBtn.style.display = 'none';
+
+    startBtn.style.display = (currentPhase === 'lobby' && isHost) ? 'block' : 'none';
+    readyBtn.style.display = (currentPhase === 'lobby' && !isHost) ? 'block' : 'none';
+
+    const me = players.find(p => p.id === PLAYER_ID);
+    if (me && !isHost) {
+        readyBtn.textContent = me.ready ? '✓ Ready (Click to Unready)' : '✓ Mark Ready';
     }
-    // Ready button: hide for host
-    document.getElementById('ready-btn').style.display = isHost ? 'none' : 'block';
+}
+
+function updateChatAvailability() {
+    const input = document.getElementById('chat-input');
+    const btn = document.getElementById('chat-send-btn');
+    const canChat = myAlive && !(currentPhase === 'night' && myRole !== 'werewolf');
+    input.disabled = !canChat;
+    btn.disabled = !canChat;
+    input.placeholder = !myAlive
+        ? 'Eliminated players cannot chat'
+        : (currentPhase === 'night' && myRole !== 'werewolf')
+            ? 'Only werewolves can chat at night'
+            : 'Say something...';
 }
 
 function renderAction(role, targets) {
@@ -286,6 +340,7 @@ function renderAction(role, targets) {
 
     targets.forEach(t => {
         const btn = document.createElement('button');
+        btn.type = 'button';
         btn.className = 'w-full bg-red-950 hover:bg-red-900 border border-red-800 rounded-lg py-3 text-left px-4 text-red-200';
         btn.textContent = t.name;
         btn.onclick = () => submitAction(t.id);
@@ -294,6 +349,7 @@ function renderAction(role, targets) {
 
     if (role === 'sheriff' || role === 'witch') {
         const skip = document.createElement('button');
+        skip.type = 'button';
         skip.className = 'w-full bg-gray-800 hover:bg-gray-700 rounded-lg py-3 text-sm text-gray-400 mt-2';
         skip.textContent = '⏭️ Skip';
         skip.onclick = () => submitAction('skip');
@@ -311,8 +367,9 @@ function renderVote(targets) {
     buttons.innerHTML = '';
 
     targets.forEach(t => {
-        if (t.id === PLAYER_ID) return;   // can't vote self
+        if (t.id === PLAYER_ID) return;
         const btn = document.createElement('button');
+        btn.type = 'button';
         btn.className = 'w-full bg-red-950 hover:bg-red-900 border border-red-800 rounded-lg py-3 text-left px-4 text-red-200';
         btn.textContent = t.name;
         btn.onclick = () => castVote(t.id);
@@ -320,6 +377,7 @@ function renderVote(targets) {
     });
 
     const skip = document.createElement('button');
+    skip.type = 'button';
     skip.className = 'w-full bg-gray-800 hover:bg-gray-700 rounded-lg py-3 text-sm text-gray-400 mt-2';
     skip.textContent = '⏭️ Skip vote';
     skip.onclick = () => castVote('skip');
@@ -332,25 +390,27 @@ function hideAction() {
 
 function renderGameOver(data) {
     hideAction();
-    triggerBloodSplatter();
+    safeSplatter();
     const winner = data.winner === 'village' ? 'Village Wins! 🎉' : 'Werewolves Win! 🐺';
-    speak(winner);
+    safeSpeak(winner);
     showToast(winner + ' — check your roles below', 'red', 5000);
 
     let html = `<div class="bg-black/80 border-2 border-red-600 rounded-2xl p-6 mt-4">
         <h2 class="text-2xl font-bold text-center mb-3 ${data.winner === 'village' ? 'text-emerald-400' : 'text-red-400'} font-medieval">
-            ${winner}
+            ${escapeHtml(winner)}
         </h2>
         <div class="space-y-1 text-sm">`;
-    data.roles.forEach(r => {
+    (data.roles || []).forEach(r => {
         html += `<div class="flex justify-between ${r.alive ? '' : 'opacity-40 line-through'}">
             <span>${escapeHtml(r.name)}</span>
-            <span class="capitalize">${r.role}</span>
+            <span class="capitalize">${escapeHtml(r.role || '')}</span>
         </div>`;
     });
     html += `</div></div>`;
-    document.getElementById('action-area').innerHTML = html;
-    document.getElementById('action-area').classList.remove('hidden');
+
+    const goArea = document.getElementById('gameover-area');
+    goArea.innerHTML = html;
+    goArea.classList.remove('hidden');
 }
 
 function addChat(entry) {
@@ -367,13 +427,13 @@ function showRoleReveal(role) {
         'werewolf': '🐺', 'seer': '🔮', 'doctor': '💊',
         'witch': '🧙‍♀️', 'sheriff': '⭐', 'villager': '👤'
     };
-    showToast(`${emojis[role] || '?'} You are ${role.toUpperCase()}`, 'purple', 4000);
-    speak(`You are ${role}.`);
+    showToast(`${emojis[role] || '?'} You are ${String(role || '').toUpperCase()}`, 'purple', 4000);
+    safeSpeak(`You are ${role}.`);
 }
 
 function showToast(msg, color, duration = 3000) {
     const t = document.createElement('div');
-    t.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-black/90 border-2 border-red-600 rounded-xl px-6 py-3 text-red-200 font-bold shadow-2xl';
+    t.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-black/90 border-2 border-red-600 rounded-xl px-6 py-3 text-red-200 font-bold shadow-2xl text-center max-w-sm';
     t.textContent = msg;
     document.body.appendChild(t);
     setTimeout(() => t.remove(), duration);
@@ -385,15 +445,8 @@ function escapeHtml(str) {
     }[c]));
 }
 
-// Save name for reconnect
 document.getElementById('chat-input')?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendChat();
 });
-
-// Store name (if came from join page)
-const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.get('name')) {
-    localStorage.setItem('wolf_player_name', urlParams.get('name'));
-}
 </script>
 {% endblock %}
