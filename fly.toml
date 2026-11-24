@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for werewolf-online-xuxjrq on 2026-11-24T02:21:54Z
+# fly.toml app configuration file generated for werewolf-online-xuxjrq on 2026-11-24T15:02:43Z
 #
 # See https://docs.fly.io/reference/configuration for information about how to use this file.
 #
@@ -11,7 +11,7 @@ primary_region = 'sin'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = true
   auto_start_machines = true
   min_machines_running = 1
 
@@ -19,3 +19,7 @@ primary_region = 'sin'
   memory = '512mb'
   cpu_kind = 'shared'
   cpus = 1
+
+[[restart]]
+  policy = 'on-failure'
+  processes = ['app']
