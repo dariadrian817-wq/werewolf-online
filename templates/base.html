@@ -421,6 +421,7 @@
     pointer-events: none;
     opacity: 0.9;
 }
+   
 
     </style>
 
@@ -532,7 +533,27 @@
     function sleep(ms) {
         return new Promise(r => setTimeout(r, ms));
     }
+     // ═══ BLOOD EFFECT UTILITIES ═══
+
+    function triggerBloodSplatter() {
+    const el = document.getElementById('global-splatter');
+    if (!el) return;
+    el.classList.remove('active');
+    // Force reflow to restart animation
+    void el.offsetWidth;
+    el.classList.add('active');
+
+    // Screen shake
+    document.body.classList.add('screen-shake');
+    setTimeout(() => document.body.classList.remove('screen-shake'), 600);
+}
     </script>
+    <!-- Global blood splatter overlay (triggered via JS) -->
+<div id="global-splatter" class="splatter-overlay"></div>
+
+
+<!-- Claw marks (decorative, top-right) -->
+<div class="claw-marks"></div>
 
     {% block scripts %}{% endblock %}
 </body>
