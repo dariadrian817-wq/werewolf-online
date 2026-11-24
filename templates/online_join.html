@@ -10,11 +10,15 @@
             🌐 Play Online
         </h1>
         <p class="text-red-300 text-sm mt-2">Real-time multiplayer</p>
+        <div class="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/50 border border-red-900/60 text-xs">
+            <span id="status-dot" class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
+            <span id="status-text" class="text-gray-300">Connecting to server...</span>
+        </div>
     </div>
 
     <!-- Name input (shared) -->
     <div>
-        <label class="text-xs text-red-300 uppercase tracking-widest">Your Name</label>
+        <label for="name-input" class="text-xs text-red-300 uppercase tracking-widest">Your Name</label>
         <input id="name-input" type="text" maxlength="20" placeholder="e.g. Adrian"
                class="w-full mt-1 bg-black/60 border-2 border-red-900 rounded-xl px-4 py-3
                       text-gray-100 focus:outline-none focus:border-red-600">
@@ -23,9 +27,9 @@
     <!-- Create room -->
     <div class="bg-black/40 border border-red-900 rounded-xl p-4">
         <p class="text-sm text-red-200 mb-3">Create a new room</p>
-        <button onclick="createRoom()"
+        <button id="create-btn" type="button" onclick="createRoom()"
                 class="w-full bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500
-                       rounded-xl py-4 font-bold">
+                       disabled:opacity-50 disabled:cursor-not-allowed rounded-xl py-4 font-bold transition">
             + Create Room
         </button>
     </div>
@@ -36,12 +40,13 @@
     <div class="bg-black/40 border border-red-900 rounded-xl p-4 space-y-3">
         <p class="text-sm text-red-200">Join existing room</p>
         <input id="code-input" type="text" maxlength="6" placeholder="ROOM CODE"
-               style="text-transform: uppercase;"
+               oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '')"
                class="w-full bg-black/60 border-2 border-red-900 rounded-xl px-4 py-3
-                      text-center text-2xl tracking-widest text-gray-100
+                      text-center text-2xl tracking-widest text-gray-100 uppercase
                       focus:outline-none focus:border-red-600">
-        <button onclick="joinRoom()"
-                class="w-full bg-gray-800 hover:bg-gray-700 border border-red-900 rounded-xl py-3 font-semibold">
+        <button id="join-btn" type="button" onclick="joinRoom()"
+                class="w-full bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed
+                       border border-red-900 rounded-xl py-3 font-semibold transition">
             Join Room
         </button>
     </div>
@@ -55,16 +60,38 @@
 {% block scripts %}
 <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
 <script>
-const socket = io();
+const socket = io({
+    transports: ['websocket', 'polling'],
+    reconnectionAttempts: 5,
+    timeout: 10000
+});
 
-// Persistent player ID
+let isSubmitting = false;
+
 function getPlayerId() {
     let id = localStorage.getItem('wolf_player_id');
     if (!id) {
-        id = 'p_' + Math.random().toString(36).substr(2, 12) + Date.now();
+        id = 'p_' + Math.random().toString(36).substring(2, 14) + Date.now();
         localStorage.setItem('wolf_player_id', id);
     }
     return id;
+}
+
+function setConnectionStatus(state, label) {
+    const dot = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    dot.className = 'w-2 h-2 rounded-full ' + (
+        state === 'connected' ? 'bg-green-500' :
+        state === 'error' ? 'bg-red-500' :
+        'bg-yellow-500 animate-pulse'
+    );
+    text.textContent = label;
+}
+
+function setButtonsDisabled(disabled) {
+    isSubmitting = disabled;
+    document.getElementById('create-btn').disabled = disabled;
+    document.getElementById('join-btn').disabled = disabled;
 }
 
 function showError(msg) {
@@ -73,35 +100,102 @@ function showError(msg) {
     el.classList.remove('hidden');
 }
 
+function clearError() {
+    const el = document.getElementById('error-msg');
+    el.textContent = '';
+    el.classList.add('hidden');
+}
+
 function getName() {
-    const n = document.getElementById('name-input').value.trim();
-    if (!n) { showError('Enter your name'); return null; }
+    const nameInput = document.getElementById('name-input');
+    const n = nameInput.value.trim();
+    if (!n) {
+        showError('Enter your name');
+        nameInput.focus();
+        return null;
+    }
+    localStorage.setItem('wolf_player_name', n);
     return n;
 }
 
+// Restore saved player name on load
+document.addEventListener('DOMContentLoaded', () => {
+    const savedName = localStorage.getItem('wolf_player_name');
+    if (savedName) {
+        document.getElementById('name-input').value = savedName;
+    }
+});
+
+// Socket lifecycle events
+socket.on('connect', () => {
+    setConnectionStatus('connected', 'Connected');
+    clearError();
+});
+
+socket.on('disconnect', (reason) => {
+    setButtonsDisabled(false);
+    setConnectionStatus('connecting', 'Disconnected (' + reason + ') — reconnecting...');
+});
+
+socket.on('connect_error', (err) => {
+    setButtonsDisabled(false);
+    setConnectionStatus('error', 'Connection error');
+    showError('Could not connect to game server: ' + err.message);
+});
+
 socket.on('room_joined', (data) => {
-    window.location.href = '/online/room/' + data.code;
+    const code = (data.code || '').trim().toUpperCase();
+    if (!code) {
+        setButtonsDisabled(false);
+        showError('Server did not return a valid room code.');
+        return;
+    }
+    window.location.href = '/online/room/' + encodeURIComponent(code);
 });
 
 socket.on('error_msg', (data) => {
-    showError(data.msg);
+    setButtonsDisabled(false);
+    showError(data.msg || 'Something went wrong.');
 });
 
 function createRoom() {
+    clearError();
+    if (isSubmitting) return;
+    if (!socket.connected) {
+        showError('Still connecting to server. Wait a moment and try again.');
+        return;
+    }
     const name = getName();
     if (!name) return;
-    socket.emit('create_room', { player_id: getPlayerId(), name: name });
+
+    setButtonsDisabled(true);
+    socket.emit('create_room', {
+        player_id: getPlayerId(),
+        name: name
+    });
 }
 
 function joinRoom() {
+    clearError();
+    if (isSubmitting) return;
+    if (!socket.connected) {
+        showError('Still connecting to server. Wait a moment and try again.');
+        return;
+    }
     const name = getName();
     if (!name) return;
+
     const code = document.getElementById('code-input').value.trim().toUpperCase();
-    if (code.length !== 6) { showError('Code must be 6 characters'); return; }
+    if (code.length !== 6) {
+        showError('Room code must be 6 characters');
+        return;
+    }
+
+    setButtonsDisabled(true);
     socket.emit('join_room_event', {
         code: code,
         player_id: getPlayerId(),
-        name: name,
+        name: name
     });
 }
 </script>
