@@ -1,8 +1,3 @@
-import importlib
-try:
-    importlib.import_module('gevent.monkey').patch_all()
-except ImportError:
-    pass
 from flask import Flask, render_template, request, session, redirect, url_for
 import random
 import string
