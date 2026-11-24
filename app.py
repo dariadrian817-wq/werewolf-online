@@ -487,7 +487,7 @@ def offline_night_skip():
 
 
 # Payagan ang lahat ng origin (pinakamadali para sa deployment)
-socketio.init_app(app, async_mode='gevent')
+socketio.init_app(app, async_mode="gevent", cors_allowed_origins="*")
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5000))
